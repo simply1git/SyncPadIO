@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { QRCodeSVG } from 'qrcode.react';
-import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, EyeOff, Bold, Italic, List, Link as LinkIcon, Save } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
+import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, EyeOff, Bold, Italic, List, Link as LinkIcon, Save, ExternalLink } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
@@ -160,6 +160,19 @@ function App() {
       const cleanId = joinInput.trim().toUpperCase();
       socket.emit('join_room', cleanId);
       setRoomId(cleanId);
+    }
+  };
+
+  const downloadQR = () => {
+    const canvas = document.getElementById('qr-code') as HTMLCanvasElement;
+    if (canvas) {
+      const pngUrl = canvas.toDataURL('image/png');
+      const downloadLink = document.createElement('a');
+      downloadLink.href = pngUrl;
+      downloadLink.download = `syncpad-qr-${roomId}.png`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
     }
   };
 
@@ -651,31 +664,73 @@ function App() {
         {/* Info / QR Section */}
         <div className="md:w-80 flex flex-col gap-4">
           <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col items-center text-center transition-colors">
-            <h3 className="font-semibold text-slate-800 dark:text-white mb-4">Scan to Join</h3>
-            <div className="bg-white p-2 rounded-xl border-2 border-slate-100 dark:border-slate-700">
-              {/* Generate a URL that points to the app with the room ID pre-filled or just the main app */}
-              <QRCodeSVG 
+            <h3 className="font-semibold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+              <Smartphone className="w-5 h-5 text-blue-500" />
+              Mobile Access
+            </h3>
+            
+            <div className="bg-white p-3 rounded-xl border-2 border-slate-100 dark:border-slate-700 shadow-inner">
+              <QRCodeCanvas 
+                id="qr-code"
                 value={(localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
                   ? `http://${localIp}:${window.location.port || 5173}?room=${roomId}`
                   : `${window.location.origin}?room=${roomId}`
                 } 
-                size={160}
-                level="M"
+                size={180}
+                level="H"
                 includeMargin={true}
+                imageSettings={{
+                  src: "/pwa-192x192.png",
+                  x: undefined,
+                  y: undefined,
+                  height: 24,
+                  width: 24,
+                  excavate: true,
+                }}
               />
             </div>
-            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-              Point your phone camera at this QR code to connect instantly.
+
+            <div className="flex gap-2 w-full mt-6">
+              <button
+                onClick={downloadQR}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Save QR
+              </button>
+              <button
+                onClick={() => {
+                  const url = (localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+                    ? `http://${localIp}:${window.location.port || 5173}?room=${roomId}`
+                    : `${window.location.origin}?room=${roomId}`;
+                  navigator.clipboard.writeText(url);
+                  setShowToast(true);
+                  setTimeout(() => setShowToast(false), 2000);
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+                Copy Link
+              </button>
+            </div>
+            
+            <p className="mt-4 text-xs text-slate-400 dark:text-slate-500">
+              Scan to instantly join this session
             </p>
           </div>
 
-          <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-2xl border border-blue-100 dark:border-blue-900/30 transition-colors">
-            <h3 className="font-semibold text-blue-900 dark:text-blue-300 mb-2">How it works</h3>
-            <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-2 list-disc list-inside">
-              <li>Text syncs in real-time</li>
-              <li>Works offline on local Wi-Fi</li>
-              <li>Data stays private in the room</li>
-            </ul>
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl shadow-lg text-white">
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <Monitor className="w-5 h-5" />
+              Pro Tip
+            </h3>
+            <p className="text-sm text-blue-100 mb-4">
+              Open SyncPadIO on your phone to use it as a remote clipboard or to transfer files from your camera roll.
+            </p>
+            <div className="flex items-center gap-2 text-xs text-blue-200 bg-white/10 p-2 rounded-lg">
+              <Wifi className="w-3 h-3" />
+              <span>Devices must be on same Wi-Fi for local mode</span>
+            </div>
           </div>
         </div>
       </main>
