@@ -655,7 +655,7 @@ function App() {
             <div className="bg-white p-2 rounded-xl border-2 border-slate-100 dark:border-slate-700">
               {/* Generate a URL that points to the app with the room ID pre-filled or just the main app */}
               <QRCodeSVG 
-                value={localIp 
+                value={(localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
                   ? `http://${localIp}:${window.location.port || 5173}?room=${roomId}`
                   : `${window.location.origin}?room=${roomId}`
                 } 
