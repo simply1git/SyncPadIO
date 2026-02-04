@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, EyeOff, Bold, Italic, List, Link as LinkIcon, Save, ExternalLink } from 'lucide-react';
+import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, EyeOff, Bold, Italic, List, Link as LinkIcon, Save } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
@@ -644,10 +644,9 @@ function App() {
                           </div>
                         </div>
                         <a 
-                          href={`${SERVER_URL}${file.url}`} 
+                          href={`${SERVER_URL}/download/${file.url.split('/').pop()}?name=${encodeURIComponent(file.name)}`}
                           target="_blank" 
                           rel="noreferrer"
-                          download
                           className="p-2 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                         >
                           <Download className="w-5 h-5" />

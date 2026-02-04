@@ -76,6 +76,28 @@ app.use(limiter);
 // Serve uploaded files
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// Download endpoint
+app.get('/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const originalName = req.query.name as string;
+  
+  // Prevent directory traversal
+  const safeFilename = path.basename(filename);
+  const filePath = path.join(UPLOADS_DIR, safeFilename);
+
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, originalName || safeFilename, (err) => {
+      if (err) {
+        if (!res.headersSent) {
+           res.status(500).send('Error downloading file');
+        }
+      }
+    });
+  } else {
+    res.status(404).send('File not found');
+  }
+});
+
 // Store active rooms (in memory for now, could be Redis later)
 interface RoomData {
   text: string;
