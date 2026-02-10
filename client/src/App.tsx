@@ -372,10 +372,21 @@ function App() {
             </form>
           </div>
           
-          <div className="flex items-center justify-center gap-2 text-sm text-slate-400">
+          <div 
+            className="flex items-center justify-center gap-2 text-sm text-slate-400 cursor-help"
+            title={`Server: ${SERVER_URL}`}
+          >
             {isConnected ? <Wifi className="w-4 h-4 text-green-500" /> : <WifiOff className="w-4 h-4 text-red-500" />}
             {status || (isConnected ? "Server Connected" : "Connecting...")}
           </div>
+          
+          {(window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' && (SERVER_URL.includes('localhost') || SERVER_URL.includes('127.0.0.1'))) && (
+            <div className="text-red-500 text-xs text-center bg-red-50 dark:bg-red-900/20 p-2 rounded-lg border border-red-100 dark:border-red-900/30">
+              ⚠️ <b>Configuration Error</b><br/>
+              App is running in production but trying to connect to localhost.<br/>
+              Please set <code>VITE_SERVER_URL</code> in your Vercel project settings.
+            </div>
+          )}
         </div>
       </div>
     );
