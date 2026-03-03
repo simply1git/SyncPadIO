@@ -73,6 +73,11 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Health Check / Wake-up Endpoint
+app.get('/', (req, res) => {
+  res.send('SyncPadIO Server is running');
+});
+
 // Serve uploaded files
 app.use('/uploads', express.static(UPLOADS_DIR));
 

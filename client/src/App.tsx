@@ -46,9 +46,15 @@ function App() {
   const [showToast, setShowToast] = useState(false);
   const [viewPreview, setViewPreview] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [isWakingUp, setIsWakingUp] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    // Wake up ping
+    fetch(SERVER_URL)
+      .then(() => console.log('Server is awake'))
+      .catch(() => console.log('Waking up server...'));
+      
     if (darkMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
@@ -62,13 +68,23 @@ function App() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    // Set waking up state if connection takes longer than 2 seconds
+    const wakeUpTimer = setTimeout(() => {
+      if (!isConnected) {
+        setIsWakingUp(true);
+      }
+    }, 2000);
+
     const newSocket = io(SERVER_URL, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10, // Increase attempts
+      timeout: 60000, // Increase timeout
     });
 
     newSocket.on('connect', () => {
       setIsConnected(true);
+      setIsWakingUp(false);
+      clearTimeout(wakeUpTimer);
       setStatus('Connected to server');
 
       // Auto-join from URL
@@ -377,7 +393,7 @@ function App() {
             title={`Server: ${SERVER_URL}`}
           >
             {isConnected ? <Wifi className="w-4 h-4 text-green-500" /> : <WifiOff className="w-4 h-4 text-red-500" />}
-            {status || (isConnected ? "Server Connected" : "Connecting...")}
+            {status || (isConnected ? "Server Connected" : (isWakingUp ? "Waking up server (can take 30s)..." : "Connecting..."))}
           </div>
           
           {(window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' && (SERVER_URL.includes('localhost') || SERVER_URL.includes('127.0.0.1'))) && (
