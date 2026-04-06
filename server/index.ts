@@ -104,8 +104,15 @@ app.get('/download/:filename', (req, res) => {
 });
 
 // Store active rooms (in memory for now, could be Redis later)
-interface RoomData {
+interface Snippet {
+  id: string;
   text: string;
+  senderId: string;
+  timestamp: number;
+}
+
+interface RoomData {
+  snippets: Snippet[];
   files: Array<{
     id: string;
     name: string;
@@ -161,7 +168,7 @@ io.on('connection', (socket) => {
   socket.on('create_room', () => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     rooms.set(roomId, {
-      text: '',
+      snippets: [],
       files: [],
       users: new Set([socket.id]),
       lastUpdated: Date.now()
@@ -180,7 +187,7 @@ io.on('connection', (socket) => {
       room.users.add(socket.id);
       
       // Send current state
-      socket.emit('init_text', room.text);
+      socket.emit('init_snippets', room.snippets);
       socket.emit('init_files', room.files);
       
       io.to(roomId).emit('user_count', room.users.size);
@@ -190,14 +197,41 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle text updates
-  socket.on('update_text', ({ roomId, text }: { roomId: string, text: string }) => {
+  // Handle snippet updates
+  socket.on('add_snippet', ({ roomId, text }: { roomId: string, text: string }) => {
     const room = rooms.get(roomId);
     if (room && room.users.has(socket.id)) {
-      room.text = text;
+      const newSnippet: Snippet = {
+        id: uuidv4(),
+        text,
+        senderId: socket.id,
+        timestamp: Date.now()
+      };
+      room.snippets.push(newSnippet);
       room.lastUpdated = Date.now();
-      // Broadcast to everyone else in the room
-      socket.to(roomId).emit('text_updated', text);
+      io.to(roomId).emit('snippet_added', newSnippet);
+    }
+  });
+
+  socket.on('update_snippet', ({ roomId, snippetId, text }: { roomId: string, snippetId: string, text: string }) => {
+    const room = rooms.get(roomId);
+    if (room && room.users.has(socket.id)) {
+      const snippet = room.snippets.find(s => s.id === snippetId);
+      if (snippet) {
+        snippet.text = text;
+        snippet.timestamp = Date.now();
+        room.lastUpdated = Date.now();
+        socket.to(roomId).emit('snippet_updated', snippet);
+      }
+    }
+  });
+
+  socket.on('delete_snippet', ({ roomId, snippetId }: { roomId: string, snippetId: string }) => {
+    const room = rooms.get(roomId);
+    if (room && room.users.has(socket.id)) {
+      room.snippets = room.snippets.filter(s => s.id !== snippetId);
+      room.lastUpdated = Date.now();
+      io.to(roomId).emit('snippet_deleted', snippetId);
     }
   });
 

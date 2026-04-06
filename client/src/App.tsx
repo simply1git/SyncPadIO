@@ -20,6 +20,13 @@ interface FileData {
   timestamp: number;
 }
 
+interface Snippet {
+  id: string;
+  text: string;
+  senderId: string;
+  timestamp: number;
+}
+
 interface UploadingFile {
   id: string;
   name: string;
@@ -30,7 +37,8 @@ interface UploadingFile {
 function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>('');
-  const [text, setText] = useState<string>('');
+  const [text, setText] = useState<string>(''); // For the current input
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [files, setFiles] = useState<FileData[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [activeTab, setActiveTab] = useState<'text' | 'files'>('text');
@@ -133,8 +141,8 @@ function App() {
       setStatus(`Room created: ${id}`);
     });
 
-    newSocket.on('init_text', (initialText: string) => {
-      setText(initialText);
+    newSocket.on('init_snippets', (initialSnippets: Snippet[]) => {
+      setSnippets(initialSnippets);
       setIsJoined(true);
       setIsJoining(false);
       setStatus('Joined room successfully');
@@ -148,8 +156,16 @@ function App() {
       setUserCount(count);
     });
 
-    newSocket.on('text_updated', (newText: string) => {
-      setText(newText);
+    newSocket.on('snippet_added', (snippet: Snippet) => {
+      setSnippets(prev => [...prev, snippet]);
+    });
+
+    newSocket.on('snippet_updated', (updatedSnippet: Snippet) => {
+      setSnippets(prev => prev.map(s => s.id === updatedSnippet.id ? updatedSnippet : s));
+    });
+
+    newSocket.on('snippet_deleted', (snippetId: string) => {
+      setSnippets(prev => prev.filter(s => s.id !== snippetId));
     });
 
     newSocket.on('file_uploaded', (file: FileData) => {
@@ -257,21 +273,51 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value;
-    setText(newText);
-
-    // Debounce emission
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    
-    timeoutRef.current = setTimeout(() => {
-      if (socket && isJoined) {
-        socket.emit('update_text', { roomId, text: newText });
-      }
-    }, 100); // 100ms delay
+  const addSnippet = () => {
+    if (socket && isJoined && text.trim()) {
+      socket.emit('add_snippet', { roomId, text });
+      setText('');
+    }
   };
 
-  const uploadFile = async (file: File) => {
+  const updateSnippet = (snippetId: string, newText: string) => {
+    if (socket && isJoined) {
+      socket.emit('update_snippet', { roomId, snippetId, text: newText });
+    }
+  };
+
+  const deleteSnippet = (snippetId: string) => {
+    if (socket && isJoined) {
+      socket.emit('delete_snippet', { roomId, snippetId });
+    }
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value);
+  };
+
+  const copySnippet = async (snippetText: string) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(snippetText);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = snippetText;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2000);
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+  };
     if (!roomId) return;
     
     const uploadId = Math.random().toString(36).substring(7);
@@ -614,127 +660,142 @@ function App() {
             </button>
           </div>
 
-          <div className="flex-1 relative bg-slate-50/30 dark:bg-transparent">
+          <div className="flex-1 relative bg-slate-50/30 dark:bg-transparent overflow-hidden flex flex-col">
             {activeTab === 'text' && (
-            <div className="flex-1 flex flex-col h-full">
-              {/* Toolbar */}
-              <div className="flex items-center justify-between p-2 px-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">
-                <div className="flex items-center gap-1">
-                  {!viewPreview && !viewCode && (
-                    <>
-                      <button
-                        onClick={() => insertMarkdown('**', '**')}
-                        className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Bold"
-                      >
-                        <Bold className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => insertMarkdown('*', '*')}
-                        className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Italic"
-                      >
-                        <Italic className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => insertMarkdown('- ')}
-                        className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="List"
-                      >
-                        <List className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => insertMarkdown('[', '](url)')}
-                        className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Link"
-                      >
-                        <LinkIcon className="w-4 h-4" />
-                      </button>
-                      <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-2"></div>
-                    </>
-                  )}
-                  <button
-                    onClick={downloadText}
-                    className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                    title="Download as File"
-                  >
-                    <Save className="w-4 h-4" />
-                  </button>
-                </div>
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+              {/* Snippets List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-950/50">
+                {snippets.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 space-y-4">
+                    <FileText className="w-16 h-16 opacity-20" />
+                    <p className="text-sm">No snippets shared yet. Start typing below!</p>
+                  </div>
+                ) : (
+                  snippets.map((snippet) => (
+                    <div key={snippet.id} className="group relative bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 transition-all hover:shadow-md">
+                      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-800/50">
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                            style={{ backgroundColor: `hsl(${snippet.senderId.charCodeAt(0) * 10 % 360}, 70%, 50%)` }}
+                          >
+                            {snippet.senderId.substring(0, 2).toUpperCase()}
+                          </div>
+                          <span className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
+                            {new Date(snippet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => copySnippet(snippet.text)}
+                            className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                            title="Copy"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          {snippet.senderId === socket?.id && (
+                            <button 
+                              onClick={() => deleteSnippet(snippet.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                              title="Delete"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-4">
+                        {viewCode ? (
+                          <SyntaxHighlighter
+                            language={language}
+                            style={vscDarkPlus}
+                            customStyle={{ margin: 0, padding: '0.5rem', borderRadius: '0.5rem', fontSize: '0.875rem' }}
+                            showLineNumbers={false}
+                          >
+                            {snippet.text}
+                          </SyntaxHighlighter>
+                        ) : viewPreview && language === 'markdown' ? (
+                          <div className="prose dark:prose-invert max-w-none text-sm">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{snippet.text}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <pre className="text-sm font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-all leading-relaxed">
+                            {snippet.text}
+                          </pre>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="relative">
+              {/* Input Area */}
+              <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => insertMarkdown('**', '**')}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                      title="Bold"
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => insertMarkdown('*', '*')}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                      title="Italic"
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => insertMarkdown('`', '`')}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                      title="Inline Code"
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <select
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
-                      className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-medium py-2 px-3 rounded-lg border-none outline-none cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors appearance-none pr-8"
+                      className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold uppercase py-1 px-2 rounded-md border-none outline-none cursor-pointer"
                     >
-                      <option value="typescript">TypeScript</option>
-                      <option value="javascript">JavaScript</option>
-                      <option value="python">Python</option>
-                      <option value="json">JSON</option>
-                      <option value="html">HTML</option>
-                      <option value="css">CSS</option>
-                      <option value="markdown">Markdown</option>
-                      <option value="bash">Bash</option>
+                      <option value="typescript">TS</option>
+                      <option value="javascript">JS</option>
+                      <option value="python">PY</option>
+                      <option value="markdown">MD</option>
                     </select>
-                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none text-slate-400">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-                    </div>
-                  </div>
-                  {language === 'markdown' && (
                     <button
                       onClick={() => setViewPreview(!viewPreview)}
-                      className={`p-2 rounded-lg transition-colors ${viewPreview ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'bg-slate-100 text-slate-500 hover:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-blue-400'}`}
-                      title={viewPreview ? "Show Source" : "Show Preview"}
+                      className={`p-1.5 rounded-md transition-colors ${viewPreview ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                      title="Preview"
                     >
-                      {viewPreview ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      <Eye className="w-3.5 h-3.5" />
                     </button>
-                  )}
-                  <button
-                    onClick={() => setViewCode(!viewCode)}
-                    className={`p-2 rounded-lg transition-colors ${viewCode ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'bg-slate-100 text-slate-500 hover:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-blue-400'}`}
-                    title="Toggle Code View"
-                  >
-                    <Code className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={copyToClipboard}
-                    className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors"
-                    title="Copy Text"
-                  >
-                    {showToast ? <span className="text-xs font-bold text-green-600 dark:text-green-400">Copied!</span> : <Copy className="w-4 h-4" />}
-                  </button>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex-1 relative flex flex-col overflow-hidden">
-                {viewPreview && language === 'markdown' ? (
-                  <div className="flex-1 overflow-auto bg-white dark:bg-slate-950 p-8 prose dark:prose-invert max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-                  </div>
-                ) : viewCode ? (
-                  <div className="flex-1 overflow-auto bg-slate-50 dark:bg-[#1e1e1e] p-0">
-                    <SyntaxHighlighter
-                      language={language}
-                      style={vscDarkPlus}
-                      customStyle={{ margin: 0, height: '100%', fontSize: '1rem', lineHeight: '1.5' }}
-                      showLineNumbers={true}
-                      wrapLines={true}
-                    >
-                      {text || ' '}
-                    </SyntaxHighlighter>
-                  </div>
-                ) : (
+                <div className="relative">
                   <textarea
                     ref={textareaRef}
                     value={text}
                     onChange={handleTextChange}
-                    placeholder="Type or paste text here..."
-                    className="flex-1 w-full p-6 resize-none focus:outline-none text-slate-700 dark:text-slate-300 bg-transparent text-lg leading-relaxed font-mono placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                    spellCheck={false}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        addSnippet();
+                      }
+                    }}
+                    placeholder="Write something... (Ctrl+Enter to share)"
+                    className="w-full min-h-[80px] p-3 text-sm font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none resize-none dark:text-slate-200"
                   />
-                )}
+                  <button
+                    onClick={addSnippet}
+                    disabled={!text.trim()}
+                    className="absolute bottom-3 right-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg shadow-lg shadow-blue-600/20 transition-all active:scale-95"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
             )}
