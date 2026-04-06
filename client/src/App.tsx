@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm';
 // In production, this should point to your deployed server URL
 // For local development (offline mode), it defaults to window.location.hostname
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || `http://${window.location.hostname}:3001`;
+const APP_VERSION = '1.2.0'; // Incremented version
 
 interface FileData {
   id: string;
@@ -401,6 +402,15 @@ function App() {
             </div>
             <h1 className="text-3xl font-bold text-slate-800 dark:text-white">SyncPadIO</h1>
             <p className="text-slate-500 dark:text-slate-400 mt-2">Real-time text and file sharing for developers</p>
+            <div className="mt-1 flex items-center justify-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 dark:bg-slate-800/50 px-1.5 py-0.5 rounded">v{APP_VERSION}</span>
+              <button 
+                onClick={() => window.location.reload()} 
+                className="text-[10px] font-bold text-blue-500 hover:text-blue-600 uppercase tracking-widest hover:underline"
+              >
+                Force Refresh
+              </button>
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -485,6 +495,7 @@ function App() {
           <div>
             <h1 className="text-xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
               SyncPadIO
+              <span className="ml-1 text-[8px] font-bold text-slate-400 dark:text-slate-500 align-top opacity-50">v{APP_VERSION}</span>
             </h1>
             <div className="flex items-center gap-2">
               <div className="flex flex-col">
