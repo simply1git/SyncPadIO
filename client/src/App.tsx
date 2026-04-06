@@ -286,15 +286,15 @@ function App() {
     e.stopPropagation();
     setDragActive(false);
     
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      uploadFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      Array.from(e.dataTransfer.files).forEach(file => uploadFile(file));
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      uploadFile(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      Array.from(files).forEach(file => uploadFile(file));
       e.target.value = '';
     }
   };
@@ -435,10 +435,19 @@ function App() {
               SyncPadIO
             </h1>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                {roomId}
-              </span>
-              <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-1.5 py-0.5 rounded-md border border-slate-100 dark:border-slate-800" title="Users Online">
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(roomId);
+                  setShowToast(true);
+                  setTimeout(() => setShowToast(false), 2000);
+                }}
+                className="group flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md border border-blue-100 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all shadow-sm"
+                title="Click to copy Room Code"
+              >
+                <span className="text-xs font-bold font-mono tracking-wider">{roomId}</span>
+                <Copy className="w-3 h-3 opacity-50 group-hover:opacity-100" />
+              </button>
+              <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-800 shadow-sm" title="Users Online">
                 <Users className="w-3 h-3" />
                 <span>{userCount}</span>
               </div>
@@ -643,12 +652,12 @@ function App() {
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                       <Upload className={`w-8 h-8 mb-3 ${isUploading ? 'text-slate-400 dark:text-slate-500 animate-bounce' : 'text-blue-500 dark:text-blue-400'}`} />
                       <p className="mb-1 text-sm text-slate-600 dark:text-slate-300">
-                        {isUploading ? 'Uploading...' : <span className="font-semibold">Click to upload file</span>}
-                      </p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500">up to 50MB</p>
-                    </div>
-                    <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                  </label>
+                      {isUploading ? 'Uploading...' : <span className="font-semibold">Click to upload files</span>}
+                    </p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">multiple files supported • up to 50MB each</p>
+                  </div>
+                  <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} multiple />
+                </label>
                 </div>
 
                 {/* File List */}
