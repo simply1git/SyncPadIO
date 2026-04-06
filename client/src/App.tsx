@@ -19,11 +19,19 @@ interface FileData {
   timestamp: number;
 }
 
+interface UploadingFile {
+  id: string;
+  name: string;
+  progress: number;
+  status: 'uploading' | 'completed' | 'error';
+}
+
 function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>('');
   const [text, setText] = useState<string>('');
   const [files, setFiles] = useState<FileData[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [activeTab, setActiveTab] = useState<'text' | 'files'>('text');
   const [isUploading, setIsUploading] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
@@ -250,24 +258,68 @@ function App() {
 
   const uploadFile = async (file: File) => {
     if (!roomId) return;
+    
+    const uploadId = Math.random().toString(36).substring(7);
+    const newUploadingFile: UploadingFile = {
+      id: uploadId,
+      name: file.name,
+      progress: 0,
+      status: 'uploading'
+    };
+    
+    setUploadingFiles(prev => [newUploadingFile, ...prev]);
     setIsUploading(true);
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('roomId', roomId);
 
     try {
       const uploadUrl = SERVER_URL.replace('ws://', 'http://').replace('wss://', 'https://');
-      const response = await fetch(`${uploadUrl}/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) throw new Error('Upload failed');
-      setActiveTab('files');
+      
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${uploadUrl}/upload`, true);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const progress = Math.round((e.loaded / e.total) * 100);
+          setUploadingFiles(prev => 
+            prev.map(f => f.id === uploadId ? { ...f, progress } : f)
+          );
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadingFiles(prev => 
+            prev.map(f => f.id === uploadId ? { ...f, status: 'completed', progress: 100 } : f)
+          );
+          setTimeout(() => {
+            setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+            if (uploadingFiles.length <= 1) setIsUploading(false);
+          }, 3000);
+          setActiveTab('files');
+        } else {
+          throw new Error('Upload failed');
+        }
+      };
+
+      xhr.onerror = () => {
+        setUploadingFiles(prev => 
+          prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f)
+        );
+        setTimeout(() => {
+          setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+          if (uploadingFiles.length <= 1) setIsUploading(false);
+        }, 5000);
+      };
+
+      xhr.send(formData);
     } catch (err) {
       console.error('Upload failed', err);
-      alert('Upload failed. Please try again.');
-    } finally {
-      setIsUploading(false);
+      setUploadingFiles(prev => 
+        prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f)
+      );
     }
   };
 
@@ -435,21 +487,27 @@ function App() {
               SyncPadIO
             </h1>
             <div className="flex items-center gap-2">
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(roomId);
-                  setShowToast(true);
-                  setTimeout(() => setShowToast(false), 2000);
-                }}
-                className="group flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md border border-blue-100 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all shadow-sm"
-                title="Click to copy Room Code"
-              >
-                <span className="text-xs font-bold font-mono tracking-wider">{roomId}</span>
-                <Copy className="w-3 h-3 opacity-50 group-hover:opacity-100" />
-              </button>
-              <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-800 shadow-sm" title="Users Online">
-                <Users className="w-3 h-3" />
-                <span>{userCount}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider ml-0.5">Room Code</span>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomId);
+                    setShowToast(true);
+                    setTimeout(() => setShowToast(false), 2000);
+                  }}
+                  className="group flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md border border-blue-100 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all shadow-sm"
+                  title="Click to copy Room Code"
+                >
+                  <span className="text-sm font-bold font-mono tracking-widest">{roomId}</span>
+                  <Copy className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
+                </button>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider ml-0.5">Online</span>
+                <div className="flex items-center gap-1 text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800 shadow-sm" title="Users Online">
+                  <Users className="w-3.5 h-3.5" />
+                  <span>{userCount}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -644,7 +702,34 @@ function App() {
           {activeTab === 'files' && (
               <div className="p-6 h-full flex flex-col">
                 {/* Upload Area */}
-                <div className="mb-6">
+                <div className="mb-6 space-y-4">
+                  {uploadingFiles.length > 0 && (
+                    <div className="bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                      <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <Upload className="w-3 h-3" />
+                        Active Uploads ({uploadingFiles.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {uploadingFiles.map(file => (
+                          <div key={file.id} className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-700 dark:text-slate-200 font-medium truncate max-w-[200px]">{file.name}</span>
+                              <span className={`font-bold ${file.status === 'error' ? 'text-red-500' : 'text-blue-500'}`}>
+                                {file.status === 'completed' ? 'Done' : file.status === 'error' ? 'Failed' : `${file.progress}%`}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-300 ${file.status === 'completed' ? 'bg-green-500' : file.status === 'error' ? 'bg-red-500' : 'bg-blue-500'}`}
+                                style={{ width: `${file.progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   <label className={`
                     flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-colors
                     ${isUploading ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' : 'bg-white dark:bg-slate-800/50 border-blue-200 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-800 hover:border-blue-400 dark:hover:border-blue-500'}
@@ -652,7 +737,7 @@ function App() {
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                       <Upload className={`w-8 h-8 mb-3 ${isUploading ? 'text-slate-400 dark:text-slate-500 animate-bounce' : 'text-blue-500 dark:text-blue-400'}`} />
                       <p className="mb-1 text-sm text-slate-600 dark:text-slate-300">
-                      {isUploading ? 'Uploading...' : <span className="font-semibold">Click to upload files</span>}
+                      {isUploading ? 'Uploading files...' : <span className="font-semibold">Click to upload files</span>}
                     </p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">multiple files supported • up to 50MB each</p>
                   </div>
