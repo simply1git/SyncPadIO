@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm';
 // In production, this should point to your deployed server URL
 // For local development (offline mode), it defaults to window.location.hostname
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || `http://${window.location.hostname}:3001`;
-const APP_VERSION = '1.2.1'; // Incremented version
+const APP_VERSION = '1.2.2'; // Incremented version
 
 interface FileData {
   id: string;
@@ -118,7 +118,7 @@ function App() {
       // Auto-join from URL
       const params = new URLSearchParams(window.location.search);
       const roomParam = params.get('room');
-      if (roomParam) {
+      if (roomParam && !isJoined) { // Only auto-join if not already in a room
         const cleanId = roomParam.trim().toUpperCase();
         console.log('Auto-joining room:', cleanId);
         newSocket.emit('join_room', cleanId);
@@ -185,6 +185,15 @@ function App() {
     };
   }, []);
 
+  const snippetsEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of snippets
+  useEffect(() => {
+    if (activeTab === 'text') {
+      snippetsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [snippets, activeTab]);
+
   // Auto-save history
   useEffect(() => {
     if (!text || text.trim() === '') return;
@@ -210,11 +219,14 @@ function App() {
 
   const joinRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (socket && joinInput.trim()) {
+    if (socket && joinInput.trim() && isConnected) {
       // Clean up input: remove spaces, uppercase
       const cleanId = joinInput.trim().toUpperCase();
+      setIsJoining(true);
       socket.emit('join_room', cleanId);
       setRoomId(cleanId);
+    } else if (!isConnected) {
+      alert("Still connecting to server... Please wait a moment.");
     }
   };
 
@@ -671,63 +683,64 @@ function App() {
                     <p className="text-sm">No snippets shared yet. Start typing below!</p>
                   </div>
                 ) : (
-                  snippets.map((snippet) => (
-                    <div key={snippet.id} className="group relative bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 transition-all hover:shadow-md">
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-800/50">
-                        <div className="flex items-center gap-2">
-                          <div 
-                            className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-                            style={{ backgroundColor: `hsl(${snippet.senderId.charCodeAt(0) * 10 % 360}, 70%, 50%)` }}
-                          >
-                            {snippet.senderId.substring(0, 2).toUpperCase()}
-                          </div>
-                          <span className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
-                            {new Date(snippet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => copySnippet(snippet.text)}
-                            className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
-                            title="Copy"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                          {snippet.senderId === socket?.id && (
-                            <button 
-                              onClick={() => deleteSnippet(snippet.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                              title="Delete"
+                    snippets.map((snippet) => (
+                      <div key={snippet.id} className="group relative bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 transition-all hover:shadow-md">
+                        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-800/50">
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
+                              style={{ backgroundColor: `hsl(${snippet.senderId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360}, 70%, 50%)` }}
                             >
-                              <X className="w-3.5 h-3.5" />
+                              {snippet.senderId.substring(0, 2).toUpperCase()}
+                            </div>
+                            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
+                              {new Date(snippet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => copySnippet(snippet.text)}
+                              className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                              title="Copy"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
                             </button>
+                            {snippet.senderId === socket?.id && (
+                              <button 
+                                onClick={() => deleteSnippet(snippet.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                                title="Delete"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          {viewCode ? (
+                            <SyntaxHighlighter
+                              language={language}
+                              style={vscDarkPlus}
+                              customStyle={{ margin: 0, padding: '0.5rem', borderRadius: '0.5rem', fontSize: '0.875rem' }}
+                              showLineNumbers={false}
+                            >
+                              {snippet.text}
+                            </SyntaxHighlighter>
+                          ) : viewPreview && language === 'markdown' ? (
+                            <div className="prose dark:prose-invert max-w-none text-sm">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{snippet.text}</ReactMarkdown>
+                            </div>
+                          ) : (
+                            <pre className="text-sm font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-all leading-relaxed">
+                              {snippet.text}
+                            </pre>
                           )}
                         </div>
                       </div>
-                      <div className="p-4">
-                        {viewCode ? (
-                          <SyntaxHighlighter
-                            language={language}
-                            style={vscDarkPlus}
-                            customStyle={{ margin: 0, padding: '0.5rem', borderRadius: '0.5rem', fontSize: '0.875rem' }}
-                            showLineNumbers={false}
-                          >
-                            {snippet.text}
-                          </SyntaxHighlighter>
-                        ) : viewPreview && language === 'markdown' ? (
-                          <div className="prose dark:prose-invert max-w-none text-sm">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{snippet.text}</ReactMarkdown>
-                          </div>
-                        ) : (
-                          <pre className="text-sm font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-all leading-relaxed">
-                            {snippet.text}
-                          </pre>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+                    ))
+                  )}
+                  <div ref={snippetsEndRef} />
+                </div>
 
               {/* Input Area */}
               <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
