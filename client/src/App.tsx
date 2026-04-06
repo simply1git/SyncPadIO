@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm';
 // In production, this should point to your deployed server URL
 // For local development (offline mode), it defaults to window.location.hostname
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || `http://${window.location.hostname}:3001`;
-const APP_VERSION = '1.2.0'; // Incremented version
+const APP_VERSION = '1.2.1'; // Incremented version
 
 interface FileData {
   id: string;
@@ -49,8 +49,19 @@ function App() {
   const lastSavedRef = useRef('');
 
   const [isJoined, setIsJoined] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
   const [status, setStatus] = useState<string>('');
   const [joinInput, setJoinInput] = useState('');
+
+  useEffect(() => {
+    // Initial check for room parameter to pre-fill and auto-join
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setJoinInput(roomParam.trim().toUpperCase());
+      setIsJoining(true);
+    }
+  }, []);
   const [localIp, setLocalIp] = useState<string>('');
   const [showToast, setShowToast] = useState(false);
   const [viewPreview, setViewPreview] = useState(false);
@@ -86,8 +97,8 @@ function App() {
 
     const newSocket = io(SERVER_URL, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10, // Increase attempts
-      timeout: 60000, // Increase timeout
+      reconnectionAttempts: 15, // Increased attempts
+      timeout: 120000, // Increased timeout to 2 mins for very cold starts
     });
 
     newSocket.on('connect', () => {
@@ -101,6 +112,7 @@ function App() {
       const roomParam = params.get('room');
       if (roomParam) {
         const cleanId = roomParam.trim().toUpperCase();
+        console.log('Auto-joining room:', cleanId);
         newSocket.emit('join_room', cleanId);
         setRoomId(cleanId);
       }
@@ -124,6 +136,7 @@ function App() {
     newSocket.on('init_text', (initialText: string) => {
       setText(initialText);
       setIsJoined(true);
+      setIsJoining(false);
       setStatus('Joined room successfully');
     });
 
@@ -146,6 +159,7 @@ function App() {
 
     newSocket.on('error', (msg: string) => {
       alert(msg);
+      setIsJoining(false);
     });
 
     setSocket(newSocket);
@@ -439,13 +453,28 @@ function App() {
                 placeholder="Enter 6-digit Code"
                 className="w-full px-4 py-3 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-center text-lg tracking-widest uppercase font-mono dark:text-white transition-colors"
                 maxLength={6}
+                disabled={isJoining}
               />
               <button
                 type="submit"
-                className="w-full bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-xl transition-colors flex items-center justify-center gap-2"
+                disabled={isJoining}
+                className={`w-full font-semibold py-3 px-6 rounded-xl transition-colors flex items-center justify-center gap-2 ${
+                  isJoining 
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed' 
+                    : 'bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white'
+                }`}
               >
-                <Smartphone className="w-5 h-5" />
-                Join Session
+                {isJoining ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                    Joining Room...
+                  </>
+                ) : (
+                  <>
+                    <Smartphone className="w-5 h-5" />
+                    Join Session
+                  </>
+                )}
               </button>
             </form>
           </div>
