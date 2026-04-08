@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, EyeOff, Bold, Italic, List, Link as LinkIcon, Save } from 'lucide-react';
+import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, Bold, Italic } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
@@ -47,7 +47,7 @@ function App() {
     return localStorage.getItem('theme') === 'dark' || 
       (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
   });
-  const [viewCode, setViewCode] = useState(false);
+  const [viewCode] = useState(false);
   const [language, setLanguage] = useState('typescript');
   
   const [isConnected, setIsConnected] = useState(false);
@@ -273,28 +273,10 @@ function App() {
     }, 0);
   };
 
-  const downloadText = () => {
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `textshare-${roomId || 'draft'}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
   const addSnippet = () => {
     if (socket && isJoined && text.trim()) {
       socket.emit('add_snippet', { roomId, text });
       setText('');
-    }
-  };
-
-  const updateSnippet = (snippetId: string, newText: string) => {
-    if (socket && isJoined) {
-      socket.emit('update_snippet', { roomId, snippetId, text: newText });
     }
   };
 
@@ -330,6 +312,8 @@ function App() {
       console.error('Copy failed', err);
     }
   };
+  
+  const uploadFile = async (file: File) => {
     if (!roomId) return;
     
     const uploadId = Math.random().toString(36).substring(7);
@@ -432,37 +416,7 @@ function App() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const copyToClipboard = async () => {
-    try {
-      // Try modern API first (works on localhost/HTTPS)
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        // Fallback for HTTP LAN access
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        textArea.style.top = "0";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-          document.execCommand('copy');
-        } catch (err) {
-          console.error('Fallback copy failed', err);
-          return;
-        }
-        document.body.removeChild(textArea);
-      }
-      
-      // Show feedback
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 2000);
-    } catch (err) {
-      console.error('Copy failed', err);
-    }
-  };
+ 
 
   if (!isJoined) {
     return (
