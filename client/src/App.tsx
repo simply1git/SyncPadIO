@@ -185,14 +185,7 @@ function App() {
     };
   }, []);
 
-  const snippetsEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom of snippets
-  useEffect(() => {
-    if (activeTab === 'text') {
-      snippetsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [snippets, activeTab]);
+ 
 
   // Auto-save history
   useEffect(() => {
@@ -629,6 +622,74 @@ function App() {
           <div className="flex-1 relative bg-slate-50/30 dark:bg-transparent overflow-hidden flex flex-col">
             {activeTab === 'text' && (
             <div className="flex-1 flex flex-col h-full overflow-hidden">
+              {/* Composer at Top */}
+              <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => insertMarkdown('**', '**')}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                      title="Bold"
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => insertMarkdown('*', '*')}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                      title="Italic"
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => insertMarkdown('`', '`')}
+                      className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                      title="Inline Code"
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold uppercase py-1 px-2 rounded-md border-none outline-none cursor-pointer"
+                    >
+                      <option value="typescript">TS</option>
+                      <option value="javascript">JS</option>
+                      <option value="python">PY</option>
+                      <option value="markdown">MD</option>
+                    </select>
+                    <button
+                      onClick={() => setViewPreview(!viewPreview)}
+                      className={`p-1.5 rounded-md transition-colors ${viewPreview ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                      title="Preview"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <textarea
+                    ref={textareaRef}
+                    value={text}
+                    onChange={handleTextChange}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        addSnippet();
+                      }
+                    }}
+                    placeholder="Write something... (Ctrl+Enter to share)"
+                    className="w-full min-h-[80px] p-3 text-sm font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none resize-none dark:text-slate-200"
+                  />
+                  <button
+                    onClick={addSnippet}
+                    disabled={!text.trim()}
+                    className="absolute bottom-3 right-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg shadow-lg shadow-blue-600/20 transition-all active:scale-95"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
               {/* Snippets List */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-950/50">
                 {snippets.length === 0 ? (
@@ -637,7 +698,7 @@ function App() {
                     <p className="text-sm">No snippets shared yet. Start typing below!</p>
                   </div>
                 ) : (
-                    snippets.map((snippet) => (
+                    [...snippets].sort((a, b) => b.timestamp - a.timestamp).map((snippet) => (
                       <div key={snippet.id} className="group relative bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 transition-all hover:shadow-md">
                         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-800/50">
                           <div className="flex items-center gap-2">
@@ -693,11 +754,10 @@ function App() {
                       </div>
                     ))
                   )}
-                  <div ref={snippetsEndRef} />
                 </div>
 
-              {/* Input Area */}
-              <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
+              {/* Input Area (moved to top) - hidden duplicate to keep structure simple */}
+              <div className="hidden p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1">
                     <button
