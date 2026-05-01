@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 import { QRCodeCanvas } from 'qrcode.react';
 import { Copy, Share2, Wifi, WifiOff, Smartphone, Monitor, FileText, Upload, Download, File, Moon, Sun, Code, Users, History, X, Clock, Eye, Bold, Italic } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { supabase } from './supabaseClient';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
-// In production, this should point to your deployed server URL
-// For local development (offline mode), it defaults to window.location.hostname
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || `http://${window.location.hostname}:3001`;
-const APP_VERSION = '1.2.2'; // Incremented version
+const APP_VERSION = '2.0.0-supabase';
 
 interface FileData {
   id: string;
@@ -23,7 +21,7 @@ interface FileData {
 interface Snippet {
   id: string;
   text: string;
-  senderId: string;
+  sender_id: string;
   timestamp: number;
 }
 
@@ -35,7 +33,7 @@ interface UploadingFile {
 }
 
 function App() {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const [roomId, setRoomId] = useState<string>('');
   const [text, setText] = useState<string>(''); // For the current input
   const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -58,11 +56,11 @@ function App() {
 
   const [isJoined, setIsJoined] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>('Ready');
   const [joinInput, setJoinInput] = useState('');
+  const [myUserId] = useState(() => Math.random().toString(36).substring(2, 10));
 
   useEffect(() => {
-    // Initial check for room parameter to pre-fill and auto-join
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     if (roomParam) {
@@ -70,19 +68,13 @@ function App() {
       setIsJoining(true);
     }
   }, []);
-  const [localIp, setLocalIp] = useState<string>('');
+
   const [showToast, setShowToast] = useState(false);
   const [viewPreview, setViewPreview] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [isWakingUp, setIsWakingUp] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    // Wake up ping
-    fetch(SERVER_URL)
-      .then(() => console.log('Server is awake'))
-      .catch(() => console.log('Waking up server...'));
-      
     if (darkMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
@@ -92,96 +84,91 @@ function App() {
     }
   }, [darkMode]);
   
-  // Debounce text updates to avoid flooding the server
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const joinRoomRealtime = async (cleanId: string) => {
+    setRoomId(cleanId);
+    setStatus('Joining room...');
+    
+    if (channel) {
+      await supabase.removeChannel(channel);
+    }
+
+    const { data: initialSnippets, error: snippetError } = await supabase
+      .from('snippets')
+      .select('*')
+      .eq('room_id', cleanId)
+      .order('timestamp', { ascending: true });
+      
+    if (!snippetError && initialSnippets) {
+      setSnippets(initialSnippets as Snippet[]);
+    }
+
+    const { data: initialFiles, error: fileError } = await supabase
+      .from('files')
+      .select('*')
+      .eq('room_id', cleanId)
+      .order('timestamp', { ascending: true });
+      
+    if (!fileError && initialFiles) {
+      setFiles(initialFiles as FileData[]);
+    }
+
+    const newChannel = supabase.channel(`room:${cleanId}`);
+
+    newChannel
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
+        (payload) => {
+          setSnippets(prev => [...prev, payload.new as Snippet]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
+        (payload) => {
+          setSnippets(prev => prev.filter(s => s.id !== payload.old.id));
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
+        (payload) => {
+          setFiles(prev => [...prev, payload.new as FileData]);
+        }
+      )
+      .on('presence', { event: 'sync' }, () => {
+        const presenceState = newChannel.presenceState();
+        const count = Object.keys(presenceState).reduce((acc, key) => acc + presenceState[key].length, 0);
+        setUserCount(Math.max(1, count));
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          setIsJoined(true);
+          setIsJoining(false);
+          setStatus('Connected to Realtime');
+          await newChannel.track({ user: myUserId, online_at: new Date().toISOString() });
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+          setIsConnected(false);
+          setStatus('Disconnected from Realtime');
+        }
+      });
+
+    setChannel(newChannel);
+  };
 
   useEffect(() => {
-    // Set waking up state if connection takes longer than 2 seconds
-    const wakeUpTimer = setTimeout(() => {
-      if (!isConnected) {
-        setIsWakingUp(true);
-      }
-    }, 2000);
-
-    const newSocket = io(SERVER_URL, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 15, // Increased attempts
-      timeout: 120000, // Increased timeout to 2 mins for very cold starts
-    });
-
-    newSocket.on('connect', () => {
-      setIsConnected(true);
-      setIsWakingUp(false);
-      clearTimeout(wakeUpTimer);
-      setStatus('Connected to server');
-
-      // Auto-join from URL
-      const params = new URLSearchParams(window.location.search);
-      const roomParam = params.get('room');
-      if (roomParam && !isJoined) { // Only auto-join if not already in a room
-        const cleanId = roomParam.trim().toUpperCase();
-        console.log('Auto-joining room:', cleanId);
-        newSocket.emit('join_room', cleanId);
-        setRoomId(cleanId);
-      }
-    });
-
-    newSocket.on('disconnect', () => {
-      setIsConnected(false);
-      setStatus('Disconnected');
-    });
-
-    newSocket.on('server_info', (data: { ip: string }) => {
-      setLocalIp(data.ip);
-    });
-
-    newSocket.on('room_created', (id: string) => {
-      setRoomId(id);
-      setIsJoined(true);
-      setStatus(`Room created: ${id}`);
-    });
-
-    newSocket.on('init_snippets', (initialSnippets: Snippet[]) => {
-      setSnippets(initialSnippets);
-      setIsJoined(true);
-      setIsJoining(false);
-      setStatus('Joined room successfully');
-    });
-
-    newSocket.on('init_files', (initialFiles: FileData[]) => {
-      setFiles(initialFiles);
-    });
-
-    newSocket.on('user_count', (count: number) => {
-      setUserCount(count);
-    });
-
-    newSocket.on('snippet_added', (snippet: Snippet) => {
-      setSnippets(prev => [...prev, snippet]);
-    });
-
-    newSocket.on('snippet_updated', (updatedSnippet: Snippet) => {
-      setSnippets(prev => prev.map(s => s.id === updatedSnippet.id ? updatedSnippet : s));
-    });
-
-    newSocket.on('snippet_deleted', (snippetId: string) => {
-      setSnippets(prev => prev.filter(s => s.id !== snippetId));
-    });
-
-    newSocket.on('file_uploaded', (file: FileData) => {
-      setFiles(prev => [...prev, file]);
-      // Optional: switch to files tab or show notification
-    });
-
-    newSocket.on('error', (msg: string) => {
-      alert(msg);
-      setIsJoining(false);
-    });
-
-    setSocket(newSocket);
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam && !isJoined) {
+      const cleanId = roomParam.trim().toUpperCase();
+      joinRoomRealtime(cleanId);
+    }
 
     return () => {
-      newSocket.disconnect();
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, []);
 
@@ -205,21 +192,17 @@ function App() {
   }, [text]);
 
   const createRoom = () => {
-    if (socket) {
-      socket.emit('create_room');
-    }
+    const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setIsJoining(true);
+    joinRoomRealtime(newRoomId);
   };
 
   const joinRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (socket && joinInput.trim() && isConnected) {
-      // Clean up input: remove spaces, uppercase
+    if (joinInput.trim()) {
       const cleanId = joinInput.trim().toUpperCase();
       setIsJoining(true);
-      socket.emit('join_room', cleanId);
-      setRoomId(cleanId);
-    } else if (!isConnected) {
-      alert("Still connecting to server... Please wait a moment.");
+      joinRoomRealtime(cleanId);
     }
   };
 
@@ -248,16 +231,8 @@ function App() {
     
     const newText = before + prefix + selectedText + suffix + after;
     
-    // Update state and trigger socket
+    // Update state
     setText(newText);
-    
-    // Debounce emission
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      if (socket && isJoined) {
-        socket.emit('update_text', { roomId, text: newText });
-      }
-    }, 100);
 
     // Restore focus and cursor
     setTimeout(() => {
@@ -266,16 +241,28 @@ function App() {
     }, 0);
   };
 
-  const addSnippet = () => {
-    if (socket && isJoined && text.trim()) {
-      socket.emit('add_snippet', { roomId, text });
-      setText('');
+  const addSnippet = async () => {
+    if (isJoined && text.trim()) {
+      const snippetText = text;
+      setText(''); // Optimistic clear
+      const { error } = await supabase.from('snippets').insert({
+        room_id: roomId,
+        text: snippetText,
+        sender_id: myUserId,
+        timestamp: Date.now()
+      });
+      if (error) {
+        console.error('Failed to add snippet:', error);
+      }
     }
   };
 
-  const deleteSnippet = (snippetId: string) => {
-    if (socket && isJoined) {
-      socket.emit('delete_snippet', { roomId, snippetId });
+  const deleteSnippet = async (snippetId: string) => {
+    if (isJoined) {
+      const { error } = await supabase.from('snippets').delete().eq('id', snippetId);
+      if (error) {
+        console.error('Failed to delete snippet:', error);
+      }
     }
   };
 
@@ -320,56 +307,51 @@ function App() {
     setUploadingFiles(prev => [newUploadingFile, ...prev]);
     setIsUploading(true);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('roomId', roomId);
-
     try {
-      const uploadUrl = SERVER_URL.replace('ws://', 'http://').replace('wss://', 'https://');
-      
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${uploadUrl}/upload`, true);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${roomId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const progress = Math.round((e.loaded / e.total) * 100);
-          setUploadingFiles(prev => 
-            prev.map(f => f.id === uploadId ? { ...f, progress } : f)
-          );
-        }
-      };
+      const { error: uploadError, data } = await supabase.storage
+        .from('uploads')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          setUploadingFiles(prev => 
-            prev.map(f => f.id === uploadId ? { ...f, status: 'completed', progress: 100 } : f)
-          );
-          setTimeout(() => {
-            setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
-            if (uploadingFiles.length <= 1) setIsUploading(false);
-          }, 3000);
-          setActiveTab('files');
-        } else {
-          throw new Error('Upload failed');
-        }
-      };
+      if (uploadError) throw uploadError;
 
-      xhr.onerror = () => {
-        setUploadingFiles(prev => 
-          prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f)
-        );
-        setTimeout(() => {
-          setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
-          if (uploadingFiles.length <= 1) setIsUploading(false);
-        }, 5000);
-      };
+      // Make progress fake for simplicity since supabase doesn't easily expose progress yet
+      setUploadingFiles(prev => 
+        prev.map(f => f.id === uploadId ? { ...f, status: 'completed', progress: 100 } : f)
+      );
 
-      xhr.send(formData);
+      const { data: publicUrlData } = supabase.storage
+        .from('uploads')
+        .getPublicUrl(data.path);
+
+      await supabase.from('files').insert({
+        room_id: roomId,
+        name: file.name,
+        size: file.size,
+        url: publicUrlData.publicUrl,
+        timestamp: Date.now()
+      });
+
+      setTimeout(() => {
+        setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+        if (uploadingFiles.length <= 1) setIsUploading(false);
+      }, 3000);
+      setActiveTab('files');
+
     } catch (err) {
       console.error('Upload failed', err);
       setUploadingFiles(prev => 
         prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f)
       );
+      setTimeout(() => {
+        setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+        if (uploadingFiles.length <= 1) setIsUploading(false);
+      }, 5000);
     }
   };
 
@@ -486,19 +468,10 @@ function App() {
           
           <div 
             className="flex items-center justify-center gap-2 text-sm text-slate-400 cursor-help"
-            title={`Server: ${SERVER_URL}`}
           >
             {isConnected ? <Wifi className="w-4 h-4 text-green-500" /> : <WifiOff className="w-4 h-4 text-red-500" />}
-            {status || (isConnected ? "Server Connected" : (isWakingUp ? "Waking up server (can take 30s)..." : "Connecting..."))}
+            {status || (isConnected ? "Realtime Connected" : "Connecting...")}
           </div>
-          
-          {(window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' && (SERVER_URL.includes('localhost') || SERVER_URL.includes('127.0.0.1'))) && (
-            <div className="text-red-500 text-xs text-center bg-red-50 dark:bg-red-900/20 p-2 rounded-lg border border-red-100 dark:border-red-900/30">
-              ⚠️ <b>Configuration Error</b><br/>
-              App is running in production but trying to connect to localhost.<br/>
-              Please set <code>VITE_SERVER_URL</code> in your Vercel project settings.
-            </div>
-          )}
         </div>
       </div>
     );
@@ -704,9 +677,9 @@ function App() {
                           <div className="flex items-center gap-2">
                             <div 
                               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
-                              style={{ backgroundColor: `hsl(${snippet.senderId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360}, 70%, 50%)` }}
+                              style={{ backgroundColor: `hsl(${snippet.sender_id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360}, 70%, 50%)` }}
                             >
-                              {snippet.senderId.substring(0, 2).toUpperCase()}
+                              {snippet.sender_id.substring(0, 2).toUpperCase()}
                             </div>
                             <span className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
                               {new Date(snippet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -720,7 +693,7 @@ function App() {
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
-                            {snippet.senderId === socket?.id && (
+                            {snippet.sender_id === myUserId && (
                               <button 
                                 onClick={() => deleteSnippet(snippet.id)}
                                 className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
@@ -893,7 +866,7 @@ function App() {
                           </div>
                         </div>
                         <a 
-                          href={`${SERVER_URL}/download/${file.url.split('/').pop()}?name=${encodeURIComponent(file.name)}`}
+                          href={`${file.url}?download=${encodeURIComponent(file.name)}`}
                           target="_blank" 
                           rel="noreferrer"
                           className="p-2 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
@@ -920,10 +893,7 @@ function App() {
             <div className="bg-white p-3 rounded-xl border-2 border-slate-100 dark:border-slate-700 shadow-inner">
               <QRCodeCanvas 
                 id="qr-code"
-                value={(localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
-                  ? `http://${localIp}:${window.location.port || 5173}?room=${roomId}`
-                  : `${window.location.origin}?room=${roomId}`
-                } 
+                value={`${window.location.origin}?room=${roomId}`}
                 size={180}
                 level="H"
                 includeMargin={true}
@@ -948,9 +918,7 @@ function App() {
               </button>
               <button
                 onClick={() => {
-                  const url = (localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
-                    ? `http://${localIp}:${window.location.port || 5173}?room=${roomId}`
-                    : `${window.location.origin}?room=${roomId}`;
+                  const url = `${window.location.origin}?room=${roomId}`;
                   navigator.clipboard.writeText(url);
                   setShowToast(true);
                   setTimeout(() => setShowToast(false), 2000);
