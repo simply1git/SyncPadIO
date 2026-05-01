@@ -7,6 +7,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { supabase } from './supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { useRoomLifecycle } from './hooks/useRoomLifecycle';
+import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 
 const APP_VERSION = '2.0.0-supabase';
 
@@ -83,6 +85,22 @@ function App() {
       localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
+
+  // Initialize room lifecycle when joined
+  const { updateLastActivity } = useRoomLifecycle({
+    roomId,
+    userId: myUserId,
+    onRoomDeleted: () => {
+      console.log('[App] Room was deleted, redirecting to home');
+      setRoomId('');
+      setIsJoined(false);
+      setSnippets([]);
+      setFiles([]);
+      setStatus('Room deleted');
+      setTimeout(() => setStatus('Ready'), 3000);
+    },
+    inactivityTimeoutMs: 60 * 60 * 1000, // 1 hour
+  });
   
   const joinRoomRealtime = async (cleanId: string) => {
     setRoomId(cleanId);
@@ -270,29 +288,17 @@ function App() {
     if (!isJoined) return;
     
     try {
-      // Extract the path from the public URL
+      // Extract the path from the public URL for backward compatibility
       const urlParts = fileUrl.split('/uploads/');
       if (urlParts.length < 2) {
         console.error('Invalid file URL');
         return;
       }
-      const filePath = urlParts[1];
+      const storagePath = urlParts[1];
 
-      // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from('uploads')
-        .remove([filePath]);
-
-      if (storageError) {
-        console.error('Failed to delete file from storage:', storageError);
-        return;
-      }
-
-      // Delete from database
-      const { error: dbError } = await supabase.from('files').delete().eq('id', fileId);
-      if (dbError) {
-        console.error('Failed to delete file record:', dbError);
-      }
+      // Use the new room-aware delete utility
+      await deleteFileFromRoom(fileId, storagePath);
+      updateLastActivity(); // Track deletion as activity
     } catch (err) {
       console.error('Delete failed:', err);
     }
@@ -326,28 +332,7 @@ function App() {
   };
   
   const uploadFile = async (file: File) => {
-    if (!roomId) return;
-    
-    // Validation: File size limit (50MB for Supabase)
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-    if (file.size > MAX_FILE_SIZE) {
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 4000);
-      console.error(`File too large: ${file.name} (${formatSize(file.size)} exceeds 50MB limit)`);
-      return;
-    }
-
-    // Validation: File type restrictions (optional)
-    const BLOCKED_TYPES = ['application/x-executable', 'application/x-msdownload', 'application/x-android-package-archive'];
-    const BLOCKED_EXTENSIONS = ['exe', 'dll', 'apk', 'bat', 'cmd', 'scr'];
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-    
-    if (BLOCKED_TYPES.includes(file.type) || BLOCKED_EXTENSIONS.includes(fileExt)) {
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 4000);
-      console.error(`File type not allowed: ${file.name} (${fileExt})`);
-      return;
-    }
+    if (!roomId || !isJoined) return;
     
     const uploadId = Math.random().toString(36).substring(7);
     const newUploadingFile: UploadingFile = {
@@ -361,43 +346,29 @@ function App() {
     setIsUploading(true);
 
     try {
-      const fileName = `${roomId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      // Use the new room-aware upload utility
+      await uploadFileToRoom({
+        roomId,
+        file,
+        onProgress: (progress) => {
+          setUploadingFiles(prev => 
+            prev.map(f => f.id === uploadId ? { ...f, progress } : f)
+          );
+        },
+      });
 
-      const { error: uploadError, data } = await supabase.storage
-        .from('uploads')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        const errorMsg = uploadError.message || 'Upload failed';
-        console.error('Upload error:', errorMsg);
-        throw new Error(errorMsg);
-      }
-
-      // Make progress fake for simplicity since supabase doesn't easily expose progress yet
+      // Update UI to show completion
       setUploadingFiles(prev => 
         prev.map(f => f.id === uploadId ? { ...f, status: 'completed', progress: 100 } : f)
       );
-
-      const { data: publicUrlData } = supabase.storage
-        .from('uploads')
-        .getPublicUrl(data.path);
-
-      await supabase.from('files').insert({
-        room_id: roomId,
-        name: file.name,
-        size: file.size,
-        url: publicUrlData.publicUrl,
-        timestamp: Date.now()
-      });
 
       setTimeout(() => {
         setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
         if (uploadingFiles.length <= 1) setIsUploading(false);
       }, 3000);
+      
       setActiveTab('files');
+      updateLastActivity(); // Track upload as activity
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Upload failed';
