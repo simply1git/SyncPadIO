@@ -37,5 +37,18 @@ export default defineConfig({
   server: {
     host: true, // Listen on all local IPs
     port: 5173,
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'ui-vendor': ['lucide-react', 'qrcode.react'],
+          'syntax-highlighter': ['react-syntax-highlighter'],
+          'markdown': ['react-markdown', 'remark-gfm'],
+          'supabase': ['@supabase/supabase-js']
+        }
+      }
+    }
   }
 })
