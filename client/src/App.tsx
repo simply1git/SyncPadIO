@@ -266,6 +266,38 @@ function App() {
     }
   };
 
+  const deleteFile = async (fileId: string, fileUrl: string) => {
+    if (!isJoined) return;
+    
+    try {
+      // Extract the path from the public URL
+      const urlParts = fileUrl.split('/uploads/');
+      if (urlParts.length < 2) {
+        console.error('Invalid file URL');
+        return;
+      }
+      const filePath = urlParts[1];
+
+      // Delete from storage
+      const { error: storageError } = await supabase.storage
+        .from('uploads')
+        .remove([filePath]);
+
+      if (storageError) {
+        console.error('Failed to delete file from storage:', storageError);
+        return;
+      }
+
+      // Delete from database
+      const { error: dbError } = await supabase.from('files').delete().eq('id', fileId);
+      if (dbError) {
+        console.error('Failed to delete file record:', dbError);
+      }
+    } catch (err) {
+      console.error('Delete failed:', err);
+    }
+  };
+
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
   };
@@ -296,6 +328,27 @@ function App() {
   const uploadFile = async (file: File) => {
     if (!roomId) return;
     
+    // Validation: File size limit (50MB for Supabase)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    if (file.size > MAX_FILE_SIZE) {
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 4000);
+      console.error(`File too large: ${file.name} (${formatSize(file.size)} exceeds 50MB limit)`);
+      return;
+    }
+
+    // Validation: File type restrictions (optional)
+    const BLOCKED_TYPES = ['application/x-executable', 'application/x-msdownload', 'application/x-android-package-archive'];
+    const BLOCKED_EXTENSIONS = ['exe', 'dll', 'apk', 'bat', 'cmd', 'scr'];
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
+    
+    if (BLOCKED_TYPES.includes(file.type) || BLOCKED_EXTENSIONS.includes(fileExt)) {
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 4000);
+      console.error(`File type not allowed: ${file.name} (${fileExt})`);
+      return;
+    }
+    
     const uploadId = Math.random().toString(36).substring(7);
     const newUploadingFile: UploadingFile = {
       id: uploadId,
@@ -308,7 +361,6 @@ function App() {
     setIsUploading(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
       const fileName = `${roomId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
       const { error: uploadError, data } = await supabase.storage
@@ -318,7 +370,11 @@ function App() {
           upsert: false,
         });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        const errorMsg = uploadError.message || 'Upload failed';
+        console.error('Upload error:', errorMsg);
+        throw new Error(errorMsg);
+      }
 
       // Make progress fake for simplicity since supabase doesn't easily expose progress yet
       setUploadingFiles(prev => 
@@ -344,10 +400,15 @@ function App() {
       setActiveTab('files');
 
     } catch (err) {
-      console.error('Upload failed', err);
+      const errorMessage = err instanceof Error ? err.message : 'Upload failed';
+      
+      console.error('Upload failed:', errorMessage);
+      
       setUploadingFiles(prev => 
         prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f)
       );
+      
+      // Show error toast
       setTimeout(() => {
         setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
         if (uploadingFiles.length <= 1) setIsUploading(false);
@@ -815,9 +876,23 @@ function App() {
                           <div key={file.id} className="space-y-1.5">
                             <div className="flex items-center justify-between text-xs">
                               <span className="text-slate-700 dark:text-slate-200 font-medium truncate max-w-[200px]">{file.name}</span>
-                              <span className={`font-bold ${file.status === 'error' ? 'text-red-500' : 'text-blue-500'}`}>
-                                {file.status === 'completed' ? 'Done' : file.status === 'error' ? 'Failed' : `${file.progress}%`}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`font-bold ${file.status === 'error' ? 'text-red-500' : 'text-blue-500'}`}>
+                                  {file.status === 'completed' ? 'Done' : file.status === 'error' ? 'Failed' : `${file.progress}%`}
+                                </span>
+                                {file.status === 'uploading' && (
+                                  <button
+                                    onClick={() => {
+                                      setUploadingFiles(prev => prev.filter(f => f.id !== file.id));
+                                      if (uploadingFiles.length <= 1) setIsUploading(false);
+                                    }}
+                                    className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 p-0.5"
+                                    title="Cancel upload"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                               <div 
@@ -865,14 +940,24 @@ function App() {
                             <p className="text-xs text-slate-400 dark:text-slate-500">{formatSize(file.size)} • {new Date(file.timestamp).toLocaleTimeString()}</p>
                           </div>
                         </div>
-                        <a 
-                          href={`${file.url}?download=${encodeURIComponent(file.name)}`}
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="p-2 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                        >
-                          <Download className="w-5 h-5" />
-                        </a>
+                        <div className="flex items-center gap-2">
+                          <a 
+                            href={`${file.url}?download=${encodeURIComponent(file.name)}`}
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                            title="Download"
+                          >
+                            <Download className="w-5 h-5" />
+                          </a>
+                          <button
+                            onClick={() => deleteFile(file.id, file.url)}
+                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                            title="Delete file"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -898,7 +983,7 @@ function App() {
                 level="H"
                 includeMargin={true}
                 imageSettings={{
-                  src: "/pwa-192x192.png",
+                  src: "/icon.svg",
                   x: undefined,
                   y: undefined,
                   height: 24,

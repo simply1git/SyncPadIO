@@ -2,6 +2,14 @@
 
 A secure, offline-capable text sharing platform for your local network.
 
+> 🎉 **Now with the Ultimate Version!** See [ULTIMATE_VERSION.md](ULTIMATE_VERSION.md) for production-grade improvements: modular architecture, custom hooks, enhanced security, complete documentation, and more.
+
+## 📚 Documentation
+
+- **[ULTIMATE_VERSION.md](ULTIMATE_VERSION.md)** - Complete improvement guide with migration steps
+- **[API_REFERENCE.md](API_REFERENCE.md)** - Full API documentation with code examples
+- **[IMPROVEMENTS_SUMMARY.md](IMPROVEMENTS_SUMMARY.md)** - Quick overview of what's new
+
 ## 🚀 How to Run
 
 1.  **Start the Backend:**
