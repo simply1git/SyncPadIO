@@ -195,21 +195,38 @@ User B listening → Supabase Realtime → Receive → Display
 ### Role
 Hosts the **Node.js Express backend** (optional, can work without).
 
-### Importance: **OPTIONAL but Recommended**
-- ⚠️ App can work without this (direct Supabase)
-- ✅ Adds file upload features
-- ✅ Adds extra validation layer
-- ✅ Future scalability
+### Importance: **OPTIONAL but Useful for Large Files**
+- ⚠️ App works without this (direct Supabase)
+- ✅ Can handle files >50MB (Supabase Storage limit)
+- ✅ Adds upload validation & chunking
+- ✅ Future scalability for enterprise
+- ✅ Extra security layer
 
 ### What It Does
 ```
-User Browser → [Frontend] → [Render Backend] → [Supabase]
+User Browser → [Frontend] → [Render Backend] → [Supabase/External Storage]
                                 ↓
-                    - File upload validation
-                    - Size checking (50MB)
-                    - Type validation
+                    - Accept large files (>50MB)
+                    - Split into chunks
+                    - Upload validation
                     - Rate limiting
                     - Security headers
+                    - Can integrate AWS S3 or similar
+```
+
+### Large File Handling
+**Current (Without Render):**
+```
+Files ≤50MB → Direct Supabase Upload ✅
+Files >50MB → Use WebRTC P2P (1-5GB) ✅
+             or split manually ⚠️
+```
+
+**With Render Backend (Future):**
+```
+Files >50MB → Render receives → Chunks → Supabase ✅
+             OR stores in Render disk ✅
+             OR integrates with AWS S3 ✅
 ```
 
 ### Current Backend Usage
