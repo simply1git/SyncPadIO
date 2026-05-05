@@ -10,11 +10,21 @@ interface RoomLifecycleOptions {
 
 /**
  * Manages room lifecycle:
- * - Creates room when user joins
- * - Tracks user presence (join/leave)
+ * - Creates room when user joins (atomic upsert, race-safe)
+ * - Tracks user presence (join/leave) with a grace period on empty
  * - Updates last activity timestamp
  * - Cleans up empty/inactive rooms
  * - Cascade deletes files when room is deleted
+ *
+ * ARCHITECTURE NOTE:
+ * `onRoomDeleted` is stored in a ref (onRoomDeletedRef) and intentionally
+ * excluded from all useCallback dep arrays. This breaks the cascade:
+ *
+ *   App re-renders → new onRoomDeleted ref → deleteRoom rebuilds →
+ *   leaveRoom rebuilds → cleanup effect fires → room self-deletes  ← BUG
+ *
+ * With the ref pattern, deleteRoom/leaveRoom are stable across renders
+ * and only rebuild when roomId actually changes.
  */
 export const useRoomLifecycle = ({
   roomId,
@@ -22,21 +32,81 @@ export const useRoomLifecycle = ({
   onRoomDeleted,
   inactivityTimeoutMs = 60 * 60 * 1000, // 1 hour default
 }: RoomLifecycleOptions) => {
+  // ✅ KEY FIX: Store callback in a ref so it never enters dep chains.
+  // An inline arrow function prop is a new reference every render.
+  // If it were in deps: onRoomDeleted → deleteRoom → leaveRoom → cleanup
+  // effect fires every render → room self-deletes immediately.
+  const onRoomDeletedRef = useRef(onRoomDeleted);
+  useEffect(() => {
+    onRoomDeletedRef.current = onRoomDeleted;
+  });
+
   const cleanupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Guard: only call leaveRoom() if room was truly initialized.
   // Prevents React StrictMode's synthetic unmount from immediately deleting the room.
   const hasInitializedRef = useRef(false);
 
-  // Create or update room record
+  // Guard: prevent double leaveRoom calls (e.g. unmount fires twice in StrictMode
+  // or both the cleanup effect and a manual leave call run concurrently).
+  const hasLeftRef = useRef(false);
+
+  // ---------------------------------------------------------------------------
+  // deleteRoom: delete room + cascade delete storage files
+  // deps: [roomId] only — no onRoomDeleted in deps (uses stable ref)
+  // ---------------------------------------------------------------------------
+  const deleteRoom = useCallback(async () => {
+    if (!roomId) return;
+
+    try {
+      // Fetch and delete associated storage files first
+      const { data: files, error: filesError } = await supabase
+        .from('files')
+        .select('id, storage_path')
+        .eq('room_id', roomId);
+
+      if (filesError) {
+        console.error('[Room] Error fetching files for cleanup:', filesError);
+      } else if (files && files.length > 0) {
+        for (const file of files) {
+          try {
+            await supabase.storage.from('uploads').remove([file.storage_path]);
+          } catch (err) {
+            console.error(`[Room] Failed to delete storage file ${file.storage_path}:`, err);
+          }
+        }
+      }
+
+      // Delete room record — ON DELETE CASCADE handles snippets/files in DB
+      const { error: deleteError } = await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', roomId);
+
+      if (deleteError) {
+        console.error('[Room] Error deleting room:', deleteError);
+      } else {
+        console.log(`[Room] Successfully deleted room: ${roomId}`);
+        onRoomDeletedRef.current?.(); // ✅ stable ref, no dep needed
+      }
+    } catch (err) {
+      console.error('[Room] Failed to delete room:', err);
+    }
+  }, [roomId]); // ✅ only roomId — stable across renders
+
+  // ---------------------------------------------------------------------------
+  // initializeRoom: atomic upsert to create room (race-safe)
+  // ---------------------------------------------------------------------------
   const initializeRoom = useCallback(async () => {
     if (!roomId) return;
 
     try {
       const now = Date.now();
 
-      // Atomic upsert: INSERT the room, ignore if it already exists (avoids 409 race
-      // condition when React StrictMode double-mounts and both instances try to INSERT).
+      // Atomic upsert: INSERT the room, ignore conflict if it already exists.
+      // Avoids 409 race condition when React StrictMode double-mounts both
+      // instances try to INSERT at the same time.
       const { error: upsertError } = await supabase.from('rooms').upsert(
         {
           id: roomId,
@@ -49,23 +119,27 @@ export const useRoomLifecycle = ({
       );
 
       if (upsertError) {
-        console.error('Error creating room:', upsertError);
+        console.error('[Room] Error creating room:', upsertError);
         return;
       }
 
-      // Always refresh last_activity and status for returning users.
+      // Always refresh last_activity and status for returning users
       await supabase
         .from('rooms')
         .update({ last_activity: now, status: 'active' })
         .eq('id', roomId);
 
       hasInitializedRef.current = true;
+      hasLeftRef.current = false;
+      console.log(`[Room] Room ${roomId} initialized`);
     } catch (err) {
-      console.error('Failed to initialize room:', err);
+      console.error('[Room] Failed to initialize room:', err);
     }
   }, [roomId]);
 
-  // Update last activity timestamp
+  // ---------------------------------------------------------------------------
+  // updateLastActivity: ping DB + reset inactivity timer
+  // ---------------------------------------------------------------------------
   const updateLastActivity = useCallback(async () => {
     if (!roomId) return;
 
@@ -80,73 +154,22 @@ export const useRoomLifecycle = ({
       if (activityTimeoutRef.current) {
         clearTimeout(activityTimeoutRef.current);
       }
-
       activityTimeoutRef.current = setTimeout(() => {
-        cleanupInactiveRoom();
+        console.log(`[Room] Inactivity timeout reached for room: ${roomId}`);
+        deleteRoom();
       }, inactivityTimeoutMs);
     } catch (err) {
-      console.error('Failed to update last activity:', err);
+      console.error('[Room] Failed to update last activity:', err);
     }
-  }, [roomId, inactivityTimeoutMs]);
+  }, [roomId, inactivityTimeoutMs, deleteRoom]);
 
-  // Cleanup inactive room
-  const cleanupInactiveRoom = useCallback(async () => {
-    if (!roomId) return;
-
-    try {
-      console.log(`[Room] Cleaning up inactive room: ${roomId}`);
-      await deleteRoom();
-    } catch (err) {
-      console.error('Failed to cleanup inactive room:', err);
-    }
-  }, [roomId]);
-
-  // Delete room and cascade delete files
-  const deleteRoom = useCallback(async () => {
-    if (!roomId) return;
-
-    try {
-      // Get all files in room
-      const { data: files, error: filesError } = await supabase
-        .from('files')
-        .select('id, storage_path')
-        .eq('room_id', roomId);
-
-      if (filesError) {
-        console.error('Error fetching files:', filesError);
-      } else if (files && files.length > 0) {
-        // Delete files from storage
-        for (const file of files) {
-          try {
-            await supabase.storage
-              .from('uploads')
-              .remove([file.storage_path]);
-          } catch (err) {
-            console.error(`Failed to delete file ${file.storage_path}:`, err);
-          }
-        }
-      }
-
-      // Delete room record (cascade delete files from DB)
-      const { error: deleteError } = await supabase
-        .from('rooms')
-        .delete()
-        .eq('id', roomId);
-
-      if (deleteError) {
-        console.error('Error deleting room:', deleteError);
-      } else {
-        console.log(`[Room] Successfully deleted room: ${roomId}`);
-        onRoomDeleted?.();
-      }
-    } catch (err) {
-      console.error('Failed to delete room:', err);
-    }
-  }, [roomId, onRoomDeleted]);
-
-  // Decrement user count and cleanup if empty
+  // ---------------------------------------------------------------------------
+  // leaveRoom: decrement user count, delete with grace period if empty
+  // deps: [roomId, deleteRoom] — stable because deleteRoom only changes with roomId
+  // ---------------------------------------------------------------------------
   const leaveRoom = useCallback(async () => {
-    if (!roomId) return;
+    if (!roomId || hasLeftRef.current) return;
+    hasLeftRef.current = true; // prevent double-calls
 
     try {
       const { data: room } = await supabase
@@ -155,112 +178,91 @@ export const useRoomLifecycle = ({
         .eq('id', roomId)
         .maybeSingle();
 
-      if (room) {
-        const newCount = Math.max(0, (room.user_count || 1) - 1);
+      if (!room) return; // Room already deleted, nothing to do
 
-        if (newCount === 0) {
-          // Room is empty, schedule cleanup
-          console.log(`[Room] Room ${roomId} is empty, scheduling cleanup`);
+      const newCount = Math.max(0, (room.user_count || 1) - 1);
 
-          if (cleanupTimeoutRef.current) {
-            clearTimeout(cleanupTimeoutRef.current);
-          }
-
-          // Clean up immediately when everyone leaves
-          await deleteRoom();
-        } else {
-          // Update user count
-          await supabase
-            .from('rooms')
-            .update({
-              user_count: newCount,
-              last_activity: Date.now(),
-            })
-            .eq('id', roomId);
-        }
+      if (newCount === 0) {
+        // Room is empty — wait 10s grace period before deleting.
+        // This prevents immediate deletion on page refresh or brief disconnects.
+        console.log(`[Room] Room ${roomId} is empty, scheduling cleanup in 10s`);
+        if (cleanupTimeoutRef.current) clearTimeout(cleanupTimeoutRef.current);
+        cleanupTimeoutRef.current = setTimeout(() => {
+          deleteRoom();
+        }, 10_000);
+      } else {
+        await supabase
+          .from('rooms')
+          .update({ user_count: newCount, last_activity: Date.now() })
+          .eq('id', roomId);
       }
     } catch (err) {
-      console.error('Failed to leave room:', err);
+      console.error('[Room] Failed to leave room:', err);
     }
-  }, [roomId, deleteRoom]);
+  }, [roomId, deleteRoom]); // ✅ stable — deleteRoom only rebuilds when roomId changes
 
-  // Subscribe to room deletion via Realtime
-  const subscribeToRoomDeletion = useCallback(() => {
+  // ---------------------------------------------------------------------------
+  // Effect 1: Initialize + subscribe to room deletion on roomId change
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
     if (!roomId) return;
 
-    try {
-      // Use a distinct channel name to avoid conflict with useRoom.ts which uses 'room:{roomId}'
-      const subscription = supabase
-        .channel(`lifecycle:${roomId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'DELETE',
-            schema: 'public',
-            table: 'rooms',
-            filter: `id=eq.${roomId}`,
-          },
-          () => {
-            console.log(`[Room] Room ${roomId} was deleted`);
-            onRoomDeleted?.();
-          }
-        )
-        .subscribe();
-
-      return subscription;
-    } catch (err) {
-      console.error('Failed to subscribe to room deletion:', err);
-    }
-  }, [roomId, onRoomDeleted]);
-
-  // Initialize on mount
-  useEffect(() => {
-    // Reset the guard so a fresh roomId starts uninitialized.
-    // This ensures StrictMode's synthetic unmount (fires before the async
-    // initializeRoom completes) cannot trigger leaveRoom on a new room.
+    // Reset guards for this new roomId
     hasInitializedRef.current = false;
+    hasLeftRef.current = false;
 
     initializeRoom();
     updateLastActivity();
 
-    const subscription = subscribeToRoomDeletion();
+    // Subscribe to external room deletion (e.g. another user deletes the room)
+    const subscription = supabase
+      .channel(`lifecycle:${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'rooms',
+          filter: `id=eq.${roomId}`,
+        },
+        () => {
+          console.log(`[Room] Room ${roomId} was deleted externally`);
+          onRoomDeletedRef.current?.(); // ✅ stable ref
+        }
+      )
+      .subscribe();
 
     return () => {
-      if (subscription) {
-        supabase.removeChannel(subscription);
-      }
+      supabase.removeChannel(subscription);
     };
-  }, [roomId, initializeRoom, updateLastActivity, subscribeToRoomDeletion]);
+  }, [roomId, initializeRoom, updateLastActivity]);
+  // ✅ subscribeToRoomDeletion removed — inlined here using the stable ref directly
 
-  // Setup activity tracking
+  // ---------------------------------------------------------------------------
+  // Effect 2: Activity tracking (mousemove, keypress, click)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    const handleActivity = () => {
-      updateLastActivity();
-    };
+    if (!roomId) return;
 
-    // Track user activity
+    const handleActivity = () => updateLastActivity();
     window.addEventListener('mousemove', handleActivity);
     window.addEventListener('keypress', handleActivity);
     window.addEventListener('click', handleActivity);
-    window.addEventListener('touch', handleActivity);
 
     return () => {
       window.removeEventListener('mousemove', handleActivity);
       window.removeEventListener('keypress', handleActivity);
       window.removeEventListener('click', handleActivity);
-      window.removeEventListener('touch', handleActivity);
-
-      if (activityTimeoutRef.current) {
-        clearTimeout(activityTimeoutRef.current);
-      }
-      if (cleanupTimeoutRef.current) {
-        clearTimeout(cleanupTimeoutRef.current);
-      }
+      if (activityTimeoutRef.current) clearTimeout(activityTimeoutRef.current);
+      if (cleanupTimeoutRef.current) clearTimeout(cleanupTimeoutRef.current);
     };
-  }, [updateLastActivity]);
+  }, [roomId, updateLastActivity]);
 
-  // Cleanup on unmount — only runs leaveRoom() if the room was truly initialized.
-  // This prevents React StrictMode's synthetic unmount from immediately deleting the room.
+  // ---------------------------------------------------------------------------
+  // Effect 3: leaveRoom on unmount — guarded so StrictMode doesn't fire it
+  // ✅ leaveRoom is now STABLE — only changes when roomId changes (not every render)
+  // so this cleanup effect only fires on real unmounts / roomId changes.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     return () => {
       if (hasInitializedRef.current) {
