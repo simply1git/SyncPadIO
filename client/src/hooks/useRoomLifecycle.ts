@@ -24,6 +24,9 @@ export const useRoomLifecycle = ({
 }: RoomLifecycleOptions) => {
   const cleanupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Guard: only call leaveRoom() if room was truly initialized.
+  // Prevents React StrictMode's synthetic unmount from immediately deleting the room.
+  const hasInitializedRef = useRef(false);
 
   // Create or update room record
   const initializeRoom = useCallback(async () => {
@@ -32,42 +35,31 @@ export const useRoomLifecycle = ({
     try {
       const now = Date.now();
 
-      // Check if room exists (maybeSingle returns null instead of 406 when no row found)
-      const { data: existingRoom } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('id', roomId)
-        .maybeSingle();
-
-      if (!existingRoom) {
-        // Create new room
-        const { error } = await supabase.from('rooms').insert({
+      // Atomic upsert: INSERT the room, ignore if it already exists (avoids 409 race
+      // condition when React StrictMode double-mounts and both instances try to INSERT).
+      const { error: upsertError } = await supabase.from('rooms').upsert(
+        {
           id: roomId,
           created_at: now,
           last_activity: now,
           user_count: 1,
           status: 'active',
-        });
+        },
+        { onConflict: 'id', ignoreDuplicates: true }
+      );
 
-        if (error && error.code !== 'PGRST116') {
-          // PGRST116 = duplicate key, room already exists
-          console.error('Error creating room:', error);
-        }
-      } else {
-        // Update existing room: increment user count and update last activity
-        const { error } = await supabase
-          .from('rooms')
-          .update({
-            last_activity: now,
-            user_count: (existingRoom.user_count || 0) + 1,
-            status: 'active',
-          })
-          .eq('id', roomId);
-
-        if (error) {
-          console.error('Error updating room:', error);
-        }
+      if (upsertError) {
+        console.error('Error creating room:', upsertError);
+        return;
       }
+
+      // Always refresh last_activity and status for returning users.
+      await supabase
+        .from('rooms')
+        .update({ last_activity: now, status: 'active' })
+        .eq('id', roomId);
+
+      hasInitializedRef.current = true;
     } catch (err) {
       console.error('Failed to initialize room:', err);
     }
@@ -262,10 +254,13 @@ export const useRoomLifecycle = ({
     };
   }, [updateLastActivity]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — only runs leaveRoom() if the room was truly initialized.
+  // This prevents React StrictMode's synthetic unmount from immediately deleting the room.
   useEffect(() => {
     return () => {
-      leaveRoom();
+      if (hasInitializedRef.current) {
+        leaveRoom();
+      }
     };
   }, [leaveRoom]);
 
