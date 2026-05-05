@@ -215,6 +215,11 @@ export const useRoomLifecycle = ({
 
   // Initialize on mount
   useEffect(() => {
+    // Reset the guard so a fresh roomId starts uninitialized.
+    // This ensures StrictMode's synthetic unmount (fires before the async
+    // initializeRoom completes) cannot trigger leaveRoom on a new room.
+    hasInitializedRef.current = false;
+
     initializeRoom();
     updateLastActivity();
 
