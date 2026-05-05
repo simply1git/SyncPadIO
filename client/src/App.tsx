@@ -159,20 +159,25 @@ function App() {
         const count = Object.keys(presenceState).reduce((acc, key) => acc + presenceState[key].length, 0);
         setUserCount(Math.max(1, count));
       })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
+      .subscribe(async (realtimeStatus) => {
+        if (realtimeStatus === 'SUBSCRIBED') {
           setIsConnected(true);
-          setIsJoined(true);
-          setIsJoining(false);
-          setStatus('Connected to Realtime');
+          setStatus('Connected · Realtime live');
           await newChannel.track({ user: myUserId, online_at: new Date().toISOString() });
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        } else if (realtimeStatus === 'CLOSED' || realtimeStatus === 'CHANNEL_ERROR' || realtimeStatus === 'TIMED_OUT') {
           setIsConnected(false);
-          setStatus('Disconnected from Realtime');
+          setStatus('Realtime offline · Changes may not sync');
         }
       });
 
     setChannel(newChannel);
+
+    // ✅ Enter the room immediately — don’t gate on Realtime subscription.
+    // The red WiFi icon shows if realtime is degraded, but the user can
+    // still share snippets and files via direct DB writes.
+    setIsJoined(true);
+    setIsJoining(false);
+    setStatus('Connecting to Realtime...');
   };
 
   useEffect(() => {
