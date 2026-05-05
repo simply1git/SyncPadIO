@@ -32,12 +32,12 @@ export const useRoomLifecycle = ({
     try {
       const now = Date.now();
 
-      // Check if room exists
+      // Check if room exists (maybeSingle returns null instead of 406 when no row found)
       const { data: existingRoom } = await supabase
         .from('rooms')
         .select('*')
         .eq('id', roomId)
-        .single();
+        .maybeSingle();
 
       if (!existingRoom) {
         // Create new room
@@ -161,7 +161,7 @@ export const useRoomLifecycle = ({
         .from('rooms')
         .select('user_count')
         .eq('id', roomId)
-        .single();
+        .maybeSingle();
 
       if (room) {
         const newCount = Math.max(0, (room.user_count || 1) - 1);
@@ -197,8 +197,9 @@ export const useRoomLifecycle = ({
     if (!roomId) return;
 
     try {
+      // Use a distinct channel name to avoid conflict with useRoom.ts which uses 'room:{roomId}'
       const subscription = supabase
-        .channel(`room:${roomId}`)
+        .channel(`lifecycle:${roomId}`)
         .on(
           'postgres_changes',
           {
