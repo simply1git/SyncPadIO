@@ -268,24 +268,45 @@ function App() {
     if (isJoined && text.trim()) {
       const snippetText = text;
       setText(''); // Optimistic clear
-      const { error } = await supabase.from('snippets').insert({
+
+      const now = Date.now();
+      // Optimistic: add to local state immediately so it shows even if Realtime is down
+      const optimisticSnippet: Snippet = {
+        id: `optimistic-${now}`,
+        text: snippetText,
+        sender_id: myUserId,
+        timestamp: now,
+      };
+      setSnippets(prev => [...prev, optimisticSnippet]);
+
+      const { data, error } = await supabase.from('snippets').insert({
         room_id: roomId,
         text: snippetText,
         sender_id: myUserId,
-        timestamp: Date.now()
-      });
+        timestamp: now,
+      }).select().single();
+
       if (error) {
         console.error('Failed to add snippet:', error);
+        // Rollback optimistic update on error
+        setSnippets(prev => prev.filter(s => s.id !== optimisticSnippet.id));
+        setText(snippetText); // Restore text
+      } else if (data) {
+        // Replace optimistic entry with real DB row (has correct UUID)
+        setSnippets(prev => prev.map(s => s.id === optimisticSnippet.id ? data as Snippet : s));
       }
     }
   };
 
   const deleteSnippet = async (snippetId: string) => {
-    if (isJoined) {
-      const { error } = await supabase.from('snippets').delete().eq('id', snippetId);
-      if (error) {
-        console.error('Failed to delete snippet:', error);
-      }
+    if (!isJoined) return;
+    // Optimistic: remove immediately from UI
+    setSnippets(prev => prev.filter(s => s.id !== snippetId));
+    const { error } = await supabase.from('snippets').delete().eq('id', snippetId);
+    if (error) {
+      console.error('Failed to delete snippet:', error);
+      // Note: we don't rollback here — a failed delete is rare and
+      // a page refresh will restore the correct state from the DB.
     }
   };
 
@@ -293,7 +314,10 @@ function App() {
     if (!isJoined) return;
     
     try {
-      // Extract the path from the public URL for backward compatibility
+      // Optimistic: remove from UI immediately
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+
+      // Extract storage path from URL
       const urlParts = fileUrl.split('/uploads/');
       if (urlParts.length < 2) {
         console.error('Invalid file URL');
@@ -301,11 +325,11 @@ function App() {
       }
       const storagePath = urlParts[1];
 
-      // Use the new room-aware delete utility
       await deleteFileFromRoom(fileId, storagePath);
-      updateLastActivity(); // Track deletion as activity
+      updateLastActivity();
     } catch (err) {
       console.error('Delete failed:', err);
+      // Note: don't rollback — a page refresh restores correct state from DB
     }
   };
 
