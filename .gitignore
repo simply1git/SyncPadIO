@@ -24,3 +24,6 @@ yarn-error.log*
 # Server uploads (don't commit these)
 server/uploads/*
 !server/uploads/.gitkeep
+
+.vercel
+.env*.local
