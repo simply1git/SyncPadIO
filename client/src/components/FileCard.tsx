@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive } from 'lucide-react';
+import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive, Loader } from 'lucide-react';
 
 export interface FileData {
   id: string;
@@ -41,9 +41,39 @@ export function formatSize(bytes: number) {
 
 export function FileCard({ file, onDelete, onPreview }: Props) {
   const [hover, setHover] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const { Icon, color, bg, isImage, isVideo } = getFileType(file.name);
   const canPreview = isImage || isVideo || file.name.toLowerCase().endsWith('.pdf');
   const timeStr = new Date(file.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  /**
+   * Force download by fetching as blob — works around Supabase serving
+   * public URLs with Content-Disposition: inline (which causes browsers
+   * to open the file instead of downloading it).
+   */
+  const handleDownload = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(file.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoke after a short delay so the download starts
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+    } catch {
+      // Fallback: open in new tab
+      window.open(file.url, '_blank');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div
@@ -86,14 +116,18 @@ export function FileCard({ file, onDelete, onPreview }: Props) {
 
         {/* Actions */}
         <div className="flex gap-2 mt-2">
-          <a
-            href={file.url}
-            download={file.name}
-            className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center no-underline"
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
             style={{ color: 'var(--text-muted)' }}
+            title="Download file"
           >
-            <Download size={12} /> Download
-          </a>
+            {downloading
+              ? <><Loader size={12} className="animate-spin" /> Downloading…</>
+              : <><Download size={12} /> Download</>
+            }
+          </button>
           <button
             onClick={() => onDelete(file.id, file.url)}
             className="btn-ghost p-1.5"
