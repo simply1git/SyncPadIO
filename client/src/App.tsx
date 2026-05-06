@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 interface Snippet { id: string; text: string; sender_id: string; timestamp: number; }
-interface UploadItem { id: string; name: string; progress: number; done: boolean; error?: string; }
+interface UploadItem { id: string; name: string; progress: number; done: boolean; error?: string; cancelled?: boolean; }
 
 const genId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const genUserId = () => Math.random().toString(36).slice(2, 10);
@@ -50,6 +50,8 @@ export default function App() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Map of uploadId → abort function for cancellation
+  const abortMapRef = useRef<Map<string, () => void>>(new Map());
   const [myUserId] = useState(genUserId);
 
   // ── Lifecycle hook ──────────────────────────────────────────────────────
@@ -179,23 +181,33 @@ export default function App() {
   const uploadFile = async (file: File) => {
     const uid = `${Date.now()}-${file.name}`;
     setUploads(prev => [...prev, { id: uid, name: file.name, progress: 0, done: false }]);
+    const { promise, abort } = uploadFileToRoom({
+      roomId, file,
+      onProgress: (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u))
+    });
+    abortMapRef.current.set(uid, abort);
     try {
-      const record = await uploadFileToRoom({
-        roomId, file,
-        onProgress: (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u))
-      });
+      const record = await promise;
+      abortMapRef.current.delete(uid);
       setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: 100, done: true } : u));
       const fd = record as unknown as FileData;
       setFiles(prev => prev.find(f => f.id === fd.id) ? prev : [...prev, fd]);
       toast.success(`${file.name} uploaded`);
       setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 2000);
     } catch (err: unknown) {
+      abortMapRef.current.delete(uid);
       const msg = err instanceof Error ? err.message : 'Upload failed';
-      setUploads(prev => prev.map(u => u.id === uid ? { ...u, error: msg } : u));
-      toast.error(msg);
-      setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 4000);
+      const isCancelled = msg === 'Upload cancelled';
+      if (!isCancelled) toast.error(msg);
+      setUploads(prev => prev.map(u => u.id === uid ? { ...u, error: isCancelled ? undefined : msg, cancelled: isCancelled } : u));
+      setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), isCancelled ? 500 : 4000);
     }
     updateLastActivity();
+  };
+
+  const cancelUpload = (uid: string) => {
+    abortMapRef.current.get(uid)?.();
+    abortMapRef.current.delete(uid);
   };
 
   const handleFiles = (fileList: FileList | null) => {
@@ -236,7 +248,7 @@ export default function App() {
       {/* Logo */}
       <div className="mb-8 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
-          style={{ background: 'linear-gradient(135deg, #16a34a, #22c55e)', boxShadow: '0 0 40px rgba(34,197,94,0.3)' }}>
+          style={{ background: 'linear-gradient(135deg, var(--accent-deep), var(--accent))', boxShadow: '0 0 40px rgba(96,165,250,0.35)' }}>
           <Zap size={32} color="#000" fill="#000" />
         </div>
         <h1 className="text-4xl font-bold tracking-tight" style={{ color: 'var(--text)', letterSpacing: '-0.03em' }}>
@@ -281,19 +293,6 @@ export default function App() {
           </button>
         </form>
 
-        {/* Features */}
-        <div className="mt-8 grid grid-cols-3 gap-3 text-center">
-          {[
-            { icon: '🔒', label: 'Encrypted' },
-            { icon: '⚡', label: 'Real-time' },
-            { icon: '🗑️', label: 'Auto-deletes' },
-          ].map(f => (
-            <div key={f.label} className="py-3 px-2 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-              <div className="text-xl mb-1">{f.icon}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{f.label}</div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -311,18 +310,18 @@ export default function App() {
         style={{ background: 'rgba(10,10,10,0.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            {/* 3-state status dot: yellow=connecting, green=live, red=offline */}
+            {/* 3-state status dot: yellow=connecting, blue=live, red=offline */}
             <div
               className="status-dot"
               style={{
-                background: connStatus === 'connected' ? 'var(--accent)' : connStatus === 'connecting' ? '#eab308' : '#ef4444',
-                boxShadow: connStatus === 'connected' ? '0 0 6px var(--accent)' : connStatus === 'connecting' ? '0 0 6px #eab308' : 'none',
-                animation: connStatus !== 'offline' ? 'pulse-green 2s ease-in-out infinite' : 'none',
+                background: connStatus === 'connected' ? 'var(--accent)' : connStatus === 'connecting' ? '#f59e0b' : '#ef4444',
+                boxShadow: connStatus === 'connected' ? '0 0 8px var(--accent)' : connStatus === 'connecting' ? '0 0 6px #f59e0b' : 'none',
+                animation: connStatus !== 'offline' ? 'pulse-blue 2s ease-in-out infinite' : 'none',
               }}
               title={
-                connStatus === 'connected' ? '🟢 Realtime live — cross-device sync active' :
+                connStatus === 'connected' ? '🔵 Realtime live — cross-device sync active' :
                 connStatus === 'connecting' ? '🟡 Connecting to Realtime…' :
-                '🔴 Realtime offline — your changes save but won\'t sync live'
+                '🔴 Realtime offline — changes save but won\'t sync live'
               }
             />
             <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>SyncPad<span style={{ color: 'var(--accent)' }}>IO</span></span>
@@ -377,13 +376,16 @@ export default function App() {
             <div className="flex items-center gap-2 mt-2">
               <button
                 onClick={() => setEncryptMode(v => !v)}
-                className={`btn-ghost flex items-center gap-1.5 px-3 py-1.5 text-xs ${encryptMode ? 'border-yellow-500/50' : ''}`}
-                style={encryptMode ? { color: '#eab308', background: 'rgba(234,179,8,0.08)' } : {}}
+                className={`btn-ghost flex items-center gap-1.5 px-3 py-1.5 text-xs`}
+                style={encryptMode ? { color: '#f59e0b', background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.4)' } : {}}
                 title="Toggle AES-256 encryption"
               >
                 {encryptMode ? <Lock size={12} /> : <Unlock size={12} />}
                 {encryptMode ? 'Encrypted' : 'Plain text'}
               </button>
+              <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                {encryptMode ? '🔒 Only people in this room can decrypt' : '👁️ Visible to anyone with the room code'}
+              </span>
               <button onClick={addSnippet} disabled={!text.trim()} className="btn-accent ml-auto px-4 py-1.5 text-sm" id="send-snippet-btn">
                 Send
               </button>
@@ -429,16 +431,29 @@ export default function App() {
             <div className="px-3 mb-2 space-y-2">
               {uploads.map(u => (
                 <div key={u.id} className="rounded-lg p-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                  <div className="flex justify-between text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-                    <span className="truncate">{u.name}</span>
-                    <span>{u.error ? '❌' : u.done ? '✅' : `${u.progress}%`}</span>
+                  <div className="flex justify-between items-center text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                    <span className="truncate flex-1 mr-2">{u.name}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span>{u.error ? '❌' : u.done ? '✅' : `${u.progress}%`}</span>
+                      {/* Cancel button — only show while uploading */}
+                      {!u.done && !u.error && !u.cancelled && (
+                        <button
+                          onClick={() => cancelUpload(u.id)}
+                          className="flex items-center justify-center w-5 h-5 rounded-full hover:bg-red-500/20 transition-colors"
+                          style={{ color: '#ef4444' }}
+                          title="Cancel upload"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {!u.error && (
                     <div className="progress-track" style={{ height: 4 }}>
                       <div className="progress-fill" style={{ width: `${u.progress}%` }} />
                     </div>
                   )}
-                  {u.error && <p className="text-xs" style={{ color: '#ef4444' }}>{u.error}</p>}
+                  {u.error && <p className="text-xs mt-1" style={{ color: '#ef4444' }}>{u.error}</p>}
                 </div>
               ))}
             </div>
