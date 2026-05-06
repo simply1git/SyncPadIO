@@ -17,6 +17,14 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
 export function SnippetCard({ snippet, myUserId, roomId, onDelete }: Props) {
   const [copied, setCopied] = useState(false);
   const [decrypted, setDecrypted] = useState<string | null>(null);
@@ -24,7 +32,7 @@ export function SnippetCard({ snippet, myUserId, roomId, onDelete }: Props) {
   const encrypted = isEncrypted(snippet.text);
   const isMine = snippet.sender_id === myUserId;
   const displayText = decrypted ?? (encrypted ? null : snippet.text);
-  const timeStr = new Date(snippet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const timeStr = timeAgo(snippet.timestamp);
 
   const copy = async () => {
     const text = decrypted ?? (encrypted ? snippet.text : snippet.text);

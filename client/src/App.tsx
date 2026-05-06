@@ -1,17 +1,18 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Toaster, toast } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
 import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
-import { encryptText } from './utils/crypto';
+import { encryptText, isEncrypted } from './utils/crypto';
 import { SnippetCard } from './components/SnippetCard';
 import { FileCard, FileData, formatSize } from './components/FileCard';
 import { ShareModal } from './components/ShareModal';
 import { PreviewModal } from './components/PreviewModal';
 import {
   Share2, Users, Upload, LogOut,
-  Plus, Lock, Unlock, ArrowRight, Zap
+  Plus, Lock, Unlock, ArrowRight, Zap,
+  Sun, Moon, Search, ClipboardList
 } from 'lucide-react';
 
 interface Snippet { id: string; text: string; sender_id: string; timestamp: number; }
@@ -45,6 +46,8 @@ export default function App() {
   const [dragActive, setDragActive] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [showShare, setShowShare] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -60,6 +63,20 @@ export default function App() {
     setIsJoined(false); setRoomId(''); setSnippets([]); setFiles([]);
     window.history.replaceState({}, '', window.location.pathname);
   }, []);
+
+  // ── Dark/light mode sync ────────────────────────────────────────────────
+  useEffect(() => {
+    document.documentElement.classList.toggle('light-mode', !darkMode);
+  }, [darkMode]);
+
+  // ── Filtered snippets (search) ──────────────────────────────────────────
+  const filteredSnippets = useMemo(() => {
+    if (!searchQuery.trim()) return snippets;
+    const q = searchQuery.toLowerCase();
+    return snippets.filter(s =>
+      isEncrypted(s.text) || s.text.toLowerCase().includes(q)
+    );
+  }, [snippets, searchQuery]);
 
   const { updateLastActivity, deleteRoom } = useRoomLifecycle({
     roomId, userId: myUserId, onRoomDeleted
@@ -136,6 +153,8 @@ export default function App() {
     setConnStatus('connecting');
     setIsJoined(true);
     setIsJoining(false);
+    // Request browser notification permission (for background tab alerts)
+    if (Notification.permission === 'default') Notification.requestPermission();
   };
 
   // ── Create / Join ───────────────────────────────────────────────────────
@@ -167,6 +186,10 @@ export default function App() {
       toast.error('Failed to send'); setSnippets(prev => prev.filter(s => s.id !== optimistic.id)); setText(raw);
     } else if (data) {
       setSnippets(prev => prev.map(s => s.id === optimistic.id ? data as Snippet : s));
+      // Notify if tab is in background
+      if (document.hidden && Notification.permission === 'granted') {
+        new Notification('SyncPadIO', { body: 'New snippet received', icon: '/icon.svg' });
+      }
     }
     updateLastActivity();
   };
@@ -343,6 +366,9 @@ export default function App() {
           <button onClick={() => setShowShare(true)} className="btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5" id="share-btn">
             <Share2 size={14} /> Share
           </button>
+          <button onClick={() => setDarkMode(v => !v)} className="btn-ghost p-1.5" title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+            {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
           <button onClick={leaveRoom} className="btn-ghost p-1.5" title="Leave room">
             <LogOut size={16} style={{ color: '#ef4444' }} />
           </button>
@@ -356,14 +382,37 @@ export default function App() {
       </div>
 
       {/* ── Main content ── */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
 
         {/* LEFT — Snippets */}
-        <div className={`flex flex-col ${activeTab === 'text' ? 'flex' : 'hidden'} md:flex flex-1`}
-          style={{ borderRight: '1px solid var(--border)', maxWidth: '50%' }}>
+        <div className={`${activeTab === 'text' ? 'flex' : 'hidden'} md:flex flex-col flex-1 overflow-hidden`}
+          style={{ borderRight: '1px solid var(--border)' }}>
 
           {/* Composer */}
           <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            {/* Search bar */}
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <Search size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+              <input
+                className="input-dark flex-1 px-2 py-1 text-xs"
+                placeholder="Search snippets…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              {snippets.length > 0 && (
+                <button
+                  className="btn-ghost flex items-center gap-1 px-2 py-1 text-xs"
+                  title="Copy all snippets"
+                  onClick={() => {
+                    const all = snippets.filter(s => !isEncrypted(s.text)).map(s => s.text).join('\n---\n');
+                    navigator.clipboard.writeText(all);
+                    toast.success('All snippets copied!');
+                  }}
+                >
+                  <ClipboardList size={12} /> All
+                </button>
+              )}
+            </div>
             <textarea
               id="snippet-input"
               className="textarea-dark w-full p-3"
@@ -394,13 +443,17 @@ export default function App() {
 
           {/* Snippet feed */}
           <div className="flex-1 overflow-y-auto p-3">
-            {snippets.length === 0 ? (
+            {filteredSnippets.length === 0 && snippets.length > 0 ? (
+              <div className="text-center pt-8" style={{ color: 'var(--text-faint)' }}>
+                <p className="text-sm">No snippets match "{searchQuery}"</p>
+              </div>
+            ) : filteredSnippets.length === 0 ? (
               <div className="text-center pt-12" style={{ color: 'var(--text-faint)' }}>
                 <p className="text-4xl mb-3">✏️</p>
                 <p className="text-sm">No snippets yet</p>
               </div>
             ) : (
-              [...snippets].reverse().map(s => (
+              [...filteredSnippets].reverse().map(s => (
                 <SnippetCard key={s.id} snippet={s} myUserId={myUserId} roomId={roomId} onDelete={deleteSnippet} />
               ))
             )}
@@ -408,7 +461,7 @@ export default function App() {
         </div>
 
         {/* RIGHT — Files */}
-        <div className={`flex flex-col ${activeTab === 'files' ? 'flex' : 'hidden'} md:flex flex-1`}>
+        <div className={`${activeTab === 'files' ? 'flex' : 'hidden'} md:flex flex-col flex-1 overflow-hidden`}>
 
           {/* Drop zone */}
           <div
