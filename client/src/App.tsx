@@ -25,8 +25,10 @@ export default function App() {
   const [roomId, setRoomId] = useState('');
   const [isJoined, setIsJoined] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  // 'connecting' | 'connected' | 'offline'
+  const [connStatus, setConnStatus] = useState<'connecting'|'connected'|'offline'>('connecting');
   const [userCount, setUserCount] = useState(1);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Content ─────────────────────────────────────────────────────────────
   const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -113,14 +115,23 @@ export default function App() {
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-        setIsConnected(true);
+        setConnStatus('connected');
+        if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
         await ch.track({ user: myUserId, joined: Date.now() });
       } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        setIsConnected(false);
+        setConnStatus('offline');
+        // Auto-reconnect after 5s
+        reconnectTimerRef.current = setTimeout(() => {
+          if (channelRef.current) {
+            setConnStatus('connecting');
+            channelRef.current.subscribe();
+          }
+        }, 5000);
       }
     });
 
     channelRef.current = ch;
+    setConnStatus('connecting');
     setIsJoined(true);
     setIsJoining(false);
   };
@@ -130,8 +141,10 @@ export default function App() {
   const joinRoom = (e: React.FormEvent) => { e.preventDefault(); joinRoomRealtime(joinInput); };
 
   const leaveRoom = async () => {
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     if (channelRef.current) { await supabase.removeChannel(channelRef.current); channelRef.current = null; }
     setIsJoined(false); setRoomId(''); setSnippets([]); setFiles([]);
+    setConnStatus('connecting');
     window.history.replaceState({}, '', window.location.pathname);
     toast('Left room', { icon: '👋' });
   };
@@ -298,7 +311,20 @@ export default function App() {
         style={{ background: 'rgba(10,10,10,0.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} title={isConnected ? 'Realtime connected' : 'Realtime offline'} />
+            {/* 3-state status dot: yellow=connecting, green=live, red=offline */}
+            <div
+              className="status-dot"
+              style={{
+                background: connStatus === 'connected' ? 'var(--accent)' : connStatus === 'connecting' ? '#eab308' : '#ef4444',
+                boxShadow: connStatus === 'connected' ? '0 0 6px var(--accent)' : connStatus === 'connecting' ? '0 0 6px #eab308' : 'none',
+                animation: connStatus !== 'offline' ? 'pulse-green 2s ease-in-out infinite' : 'none',
+              }}
+              title={
+                connStatus === 'connected' ? '🟢 Realtime live — cross-device sync active' :
+                connStatus === 'connecting' ? '🟡 Connecting to Realtime…' :
+                '🔴 Realtime offline — your changes save but won\'t sync live'
+              }
+            />
             <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>SyncPad<span style={{ color: 'var(--accent)' }}>IO</span></span>
           </div>
           <button
