@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive, Loader } from 'lucide-react';
+import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive } from 'lucide-react';
+import { downloadWithProgress } from '../utils/download';
 
 export interface FileData {
   id: string;
@@ -41,37 +42,23 @@ export function formatSize(bytes: number) {
 
 export function FileCard({ file, onDelete, onPreview }: Props) {
   const [hover, setHover] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  // null = idle, -1 = indeterminate, 0-100 = real progress
+  const [dlProgress, setDlProgress] = useState<number | null>(null);
   const { Icon, color, bg, isImage, isVideo } = getFileType(file.name);
   const canPreview = isImage || isVideo || file.name.toLowerCase().endsWith('.pdf');
   const timeStr = new Date(file.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const isDownloading = dlProgress !== null && dlProgress < 100;
 
-  /**
-   * Force download by fetching as blob — works around Supabase serving
-   * public URLs with Content-Disposition: inline (which causes browsers
-   * to open the file instead of downloading it).
-   */
   const handleDownload = async () => {
-    if (downloading) return;
-    setDownloading(true);
+    if (isDownloading) return;
+    setDlProgress(0);
     try {
-      const res = await fetch(file.url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = file.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Revoke after a short delay so the download starts
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+      await downloadWithProgress(file.url, file.name, (pct) => setDlProgress(pct));
     } catch {
-      // Fallback: open in new tab
       window.open(file.url, '_blank');
     } finally {
-      setDownloading(false);
+      // Keep 100% shown briefly, then reset
+      setTimeout(() => setDlProgress(null), 1500);
     }
   };
 
@@ -81,7 +68,7 @@ export function FileCard({ file, onDelete, onPreview }: Props) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      {/* Thumbnail / Icon area */}
+      {/* Thumbnail / Icon */}
       <div
         className="relative flex items-center justify-center overflow-hidden"
         style={{ height: 100, background: bg, cursor: canPreview ? 'pointer' : 'default' }}
@@ -98,7 +85,7 @@ export function FileCard({ file, onDelete, onPreview }: Props) {
         ) : (
           <Icon size={36} style={{ color, opacity: 0.8 }} />
         )}
-        {(isVideo || canPreview) && !isImage && hover && (
+        {canPreview && !isImage && hover && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
             <Eye size={20} color="#fff" />
           </div>
@@ -110,28 +97,56 @@ export function FileCard({ file, onDelete, onPreview }: Props) {
         <p className="text-sm font-medium truncate mb-1" style={{ color: 'var(--text)' }} title={file.name}>
           {file.name}
         </p>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
           {formatSize(file.size)} · {timeStr}
         </p>
 
+        {/* Download progress bar */}
+        {dlProgress !== null && (
+          <div className="mb-2">
+            <div className="flex justify-between text-xs mb-1" style={{ color: 'var(--text-faint)' }}>
+              <span>{dlProgress === 100 ? 'Done!' : 'Downloading…'}</span>
+              <span>{dlProgress >= 0 ? `${dlProgress}%` : ''}</span>
+            </div>
+            <div className="progress-track" style={{ height: 3 }}>
+              {dlProgress === -1 ? (
+                /* Indeterminate: unknown Content-Length */
+                <div
+                  style={{
+                    height: '100%',
+                    width: '40%',
+                    background: 'linear-gradient(90deg, var(--accent-deep), var(--accent))',
+                    borderRadius: 999,
+                    animation: 'indeterminate 1.2s ease-in-out infinite',
+                  }}
+                />
+              ) : (
+                <div className="progress-fill" style={{ width: `${dlProgress}%` }} />
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
-        <div className="flex gap-2 mt-2">
+        <div className="flex gap-2">
           <button
             onClick={handleDownload}
-            disabled={downloading}
+            disabled={isDownloading}
             className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
-            style={{ color: 'var(--text-muted)' }}
+            style={{ color: isDownloading ? 'var(--accent)' : 'var(--text-muted)' }}
             title="Download file"
           >
-            {downloading
-              ? <><Loader size={12} className="animate-spin" /> Downloading…</>
-              : <><Download size={12} /> Download</>
+            <Download size={12} />
+            {isDownloading
+              ? (dlProgress === -1 ? 'Downloading…' : `${dlProgress}%`)
+              : dlProgress === 100 ? 'Done ✓' : 'Download'
             }
           </button>
           <button
             onClick={() => onDelete(file.id, file.url)}
             className="btn-ghost p-1.5"
             title="Delete"
+            disabled={isDownloading}
           >
             <Trash2 size={13} style={{ color: '#ef4444' }} />
           </button>

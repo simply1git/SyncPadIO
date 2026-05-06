@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Indeterminate progress animation (unknown Content-Length downloads) */
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(150%); }
+  100% { transform: translateX(400%); }
+}
+
 /* ── Design tokens (PandaShare dark + our own flair) ─────────────────────── */
 :root {
   --font-sans: 'Inter', system-ui, sans-serif;
