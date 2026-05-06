@@ -28,5 +28,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Create client with validation
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Export raw config for XHR-based uploads (progress tracking)
+export { supabaseUrl, supabaseAnonKey };
+
 // Export a boolean indicating if credentials are properly configured
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);

@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../supabaseClient';
 
 interface UploadFileOptions {
   roomId: string;
@@ -6,167 +6,114 @@ interface UploadFileOptions {
   onProgress?: (progress: number) => void;
 }
 
+const BLOCKED_EXTS = ['.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs'];
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
 /**
- * Upload file to Supabase Storage and record in database
- * Automatically tracks storage path for cleanup
+ * Upload a file using XHR (for real progress events) then record in DB.
+ * Progress: 0-85% = storage upload, 85-100% = DB insert.
  */
-export const uploadFileToRoom = async ({
+export const uploadFileToRoom = ({
   roomId,
   file,
   onProgress,
-}: UploadFileOptions) => {
-  try {
-    // Validate file
-    if (!file) {
-      throw new Error('No file provided');
-    }
+}: UploadFileOptions): Promise<Record<string, unknown>> => {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('No file provided'));
 
-    // Check file size (50MB limit for Supabase direct upload)
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error('File size exceeds 50MB limit. Use WebRTC P2P for larger files.');
-    }
+    if (file.size > MAX_FILE_SIZE)
+      return reject(new Error('File exceeds 50 MB. Use WebRTC P2P for larger files.'));
 
-    // Block executable files
-    const executableExtensions = ['.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js'];
-    const fileName = file.name.toLowerCase();
-    if (executableExtensions.some(ext => fileName.endsWith(ext))) {
-      throw new Error('Executable files are not allowed for security reasons');
-    }
+    const ext = file.name.toLowerCase();
+    if (BLOCKED_EXTS.some(e => ext.endsWith(e)))
+      return reject(new Error('Executable files are not allowed.'));
 
-    // Generate storage path: room_id/timestamp_filename
     const timestamp = Date.now();
-    const sanitizedName = file.name
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .substring(0, 100);
-    const storagePath = `${roomId}/${timestamp}_${sanitizedName}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+    const storagePath = `${roomId}/${timestamp}_${safeName}`;
 
-    // Upload to storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('uploads')
-      .upload(storagePath, file, {
-        cacheControl: '0',
-        upsert: false,
-      });
+    onProgress?.(5);
 
-    if (uploadError) {
-      throw uploadError;
-    }
+    // ── XHR upload for real progress tracking ──────────────────────────────
+    const xhr = new XMLHttpRequest();
 
-    if (!uploadData) {
-      throw new Error('Upload failed');
-    }
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        // Map 0-100% upload → 5-85% total progress
+        const pct = Math.round(5 + (e.loaded / e.total) * 80);
+        onProgress?.(pct);
+      }
+    });
 
-    // Get public URL
-    const { data: publicUrlData } = supabase.storage
-      .from('uploads')
-      .getPublicUrl(storagePath);
+    xhr.addEventListener('load', async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(87);
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('uploads')
+          .getPublicUrl(storagePath);
 
-    const fileUrl = publicUrlData.publicUrl;
+        // DB insert
+        const { data: fileRecord, error: dbError } = await supabase
+          .from('files')
+          .insert({
+            room_id: roomId,
+            name: file.name,
+            size: file.size,
+            url: urlData.publicUrl,
+            timestamp,
+            storage_path: storagePath,
+          })
+          .select()
+          .single();
 
-    // Record in database with storage path for cleanup
-    const { data: fileRecord, error: dbError } = await supabase
-      .from('files')
-      .insert({
-        room_id: roomId,
-        name: file.name,
-        size: file.size,
-        url: fileUrl,
-        timestamp: timestamp,
-        storage_path: storagePath,
-      })
-      .select()
-      .single();
+        if (dbError) {
+          // Rollback storage on DB failure
+          await supabase.storage.from('uploads').remove([storagePath]);
+          return reject(dbError);
+        }
 
-    if (dbError) {
-      // If database insert fails, cleanup the uploaded file
-      await supabase.storage
-        .from('uploads')
-        .remove([storagePath]);
-      throw dbError;
-    }
+        console.log(`[Upload] File uploaded successfully: ${file.name} (${storagePath})`);
+        onProgress?.(100);
+        resolve(fileRecord as Record<string, unknown>);
+      } else {
+        let msg = `Upload failed (HTTP ${xhr.status})`;
+        try { msg = JSON.parse(xhr.responseText)?.message ?? msg; } catch { /* ignore */ }
+        reject(new Error(msg));
+      }
+    });
 
-    console.log(`[Upload] File uploaded successfully: ${file.name} (${storagePath})`);
-    onProgress?.(100);
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
 
-    return fileRecord;
-  } catch (err) {
-    console.error('[Upload] Error uploading file:', err);
-    throw err;
-  }
+    // Supabase Storage REST: POST /storage/v1/object/{bucket}/{path}
+    xhr.open('POST', `${supabaseUrl}/storage/v1/object/uploads/${storagePath}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${supabaseAnonKey}`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.setRequestHeader('Cache-Control', 'no-cache');
+    xhr.send(file);
+  });
 };
 
-/**
- * Delete file from both storage and database
- */
+/** Delete file from storage and DB */
 export const deleteFileFromRoom = async (fileId: string, storagePath: string) => {
-  try {
-    // Delete from storage
-    const { error: storageError } = await supabase.storage
-      .from('uploads')
-      .remove([storagePath]);
+  const { error: storageErr } = await supabase.storage.from('uploads').remove([storagePath]);
+  if (storageErr) console.error('[Delete] Storage error:', storageErr);
 
-    if (storageError) {
-      console.error('Error deleting from storage:', storageError);
-    }
+  const { error: dbErr } = await supabase.from('files').delete().eq('id', fileId);
+  if (dbErr) throw dbErr;
 
-    // Delete from database
-    const { error: dbError } = await supabase
-      .from('files')
-      .delete()
-      .eq('id', fileId);
-
-    if (dbError) {
-      throw dbError;
-    }
-
-    console.log(`[Delete] File deleted successfully: ${storagePath}`);
-  } catch (err) {
-    console.error('[Delete] Error deleting file:', err);
-    throw err;
-  }
+  console.log(`[Delete] File deleted successfully: ${storagePath}`);
 };
 
-/**
- * Get all files for a room
- */
+/** Get all files for a room */
 export const getRoomFiles = async (roomId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('files')
-      .select('*')
-      .eq('room_id', roomId)
-      .order('timestamp', { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
-    return data || [];
-  } catch (err) {
-    console.error('[Files] Error fetching room files:', err);
-    return [];
-  }
-};
-
-/**
- * Get room info
- */
-export const getRoomInfo = async (roomId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('*')
-      .eq('id', roomId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      throw error;
-    }
-
-    return data;
-  } catch (err) {
-    console.error('[Room] Error fetching room info:', err);
-    return null;
-  }
+  const { data, error } = await supabase
+    .from('files')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('timestamp', { ascending: false });
+  if (error) { console.error('[Files] Error fetching files:', error); return []; }
+  return data ?? [];
 };
