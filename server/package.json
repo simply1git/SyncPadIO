@@ -25,6 +25,7 @@
     "helmet": "^8.1.0",
     "lucide-react": "^0.563.0",
     "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
     "qrcode.react": "^4.2.0",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@types/multer": "^2.0.0",
+    "@types/node-cron": "^3.0.11",
     "autoprefixer": "^10.4.24",
     "nodemon": "^3.1.11",
     "postcss": "^8.5.6",

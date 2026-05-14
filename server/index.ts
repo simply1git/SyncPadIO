@@ -10,6 +10,8 @@ import os from 'os';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
+import cron from 'node-cron';
+import https from 'https';
 
 dotenv.config();
 
@@ -73,9 +75,70 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// ── Keep-Alive Configuration ───────────────────────────────────────────────
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://fxjmaajktqehnaergnky.supabase.co';
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
+
+// Function to ping a URL to keep it active
+const pingService = (url: string, serviceName: string) => {
+  return new Promise<boolean>((resolve) => {
+    if (!url) {
+      console.warn(`⚠️  ${serviceName} URL not configured`);
+      resolve(false);
+      return;
+    }
+    
+    https.get(url, { timeout: 5000 }, (res) => {
+      console.log(`✅ ${serviceName} pinged successfully (status: ${res.statusCode})`);
+      resolve(res.statusCode === 200);
+    }).on('error', (err) => {
+      console.warn(`⚠️  Failed to ping ${serviceName}:`, err.message);
+      resolve(false);
+    });
+  });
+};
+
+// Ping Supabase to keep it active
+const pingSupabase = () => {
+  const healthCheckUrl = `${SUPABASE_URL}/rest/v1/health`;
+  return pingService(healthCheckUrl, 'Supabase');
+};
+
+// Log keep-alive events
+console.log('🔄 Keep-Alive Service Initialized');
+console.log(`📍 Supabase URL: ${SUPABASE_URL}`);
+if (RENDER_URL) console.log(`📍 Render URL: ${RENDER_URL}`);
+
+// Schedule: Ping Supabase every 5 minutes to prevent pause
+cron.schedule('*/5 * * * *', async () => {
+  console.log(`⏰ [${new Date().toLocaleTimeString()}] Running keep-alive check...`);
+  await pingSupabase();
+});
+
+// Immediate first ping on startup
+setTimeout(() => pingSupabase(), 2000);
+
 // Health Check / Wake-up Endpoint
 app.get('/', (req, res) => {
   res.send('SyncPadIO Server is running');
+});
+
+// Enhanced health endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Keep-alive endpoint - manual trigger for pinging services
+app.get('/keep-alive', async (req, res) => {
+  const results = {
+    supabase: await pingSupabase(),
+    timestamp: new Date().toISOString()
+  };
+  res.json(results);
 });
 
 // Serve uploaded files

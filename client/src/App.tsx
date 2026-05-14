@@ -5,6 +5,7 @@ import { supabase } from './supabaseClient';
 import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, isEncrypted } from './utils/crypto';
+import { startKeepAliveService } from './utils/keepAlive';
 import { SnippetCard } from './components/SnippetCard';
 import { FileCard, FileData, formatSize } from './components/FileCard';
 import { ShareModal } from './components/ShareModal';
@@ -86,6 +87,12 @@ export default function App() {
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get('room');
     if (param) { setJoinInput(param.toUpperCase()); joinRoomRealtime(param.toUpperCase()); }
+  }, []); // eslint-disable-line
+
+  // ── Keep-Alive Service ──────────────────────────────────────────────────
+  useEffect(() => {
+    const cleanup = startKeepAliveService();
+    return cleanup; // Cleanup on unmount
   }, []); // eslint-disable-line
 
   // ── joinRoomRealtime ────────────────────────────────────────────────────
