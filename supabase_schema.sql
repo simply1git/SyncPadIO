@@ -13,7 +13,7 @@ commit;
 drop table if exists snippets cascade;
 create table snippets (
   id uuid default gen_random_uuid() primary key,
-  room_id text not null,
+  room_id text not null references rooms(id) on delete cascade,
   text text not null,
   sender_id text not null,
   "timestamp" bigint not null

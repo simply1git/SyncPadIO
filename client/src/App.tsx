@@ -98,6 +98,15 @@ export default function App() {
 
     if (channelRef.current) await supabase.removeChannel(channelRef.current);
 
+    // Ensure room exists in database
+    const now = Date.now();
+    await supabase.from('rooms').upsert({
+      id: cleanId,
+      created_at: now,
+      last_activity: now,
+      status: 'active'
+    }, { onConflict: 'id' });
+
     const [snippetRes, fileRes] = await Promise.all([
       supabase.from('snippets').select('*').eq('room_id', cleanId).order('timestamp'),
       supabase.from('files').select('*').eq('room_id', cleanId).order('timestamp'),
@@ -183,7 +192,10 @@ export default function App() {
       .insert({ room_id: roomId, text: body, sender_id: myUserId, timestamp: now })
       .select().single();
     if (error) {
-      toast.error('Failed to send'); setSnippets(prev => prev.filter(s => s.id !== optimistic.id)); setText(raw);
+      console.error('Snippet send error:', error);
+      toast.error(`Failed to send: ${error.message || 'Unknown error'}`);
+      setSnippets(prev => prev.filter(s => s.id !== optimistic.id));
+      setText(raw);
     } else if (data) {
       setSnippets(prev => prev.map(s => s.id === optimistic.id ? data as Snippet : s));
       // Notify if tab is in background
