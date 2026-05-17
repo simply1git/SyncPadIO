@@ -16,7 +16,8 @@ export interface FileToDownload {
 export const downloadFilesAsZip = async (
   files: FileToDownload[],
   zipName: string = 'SyncPadIO-files',
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  signal?: AbortSignal
 ): Promise<void> => {
   if (files.length === 0) {
     throw new Error('No files to download');
@@ -29,7 +30,9 @@ export const downloadFilesAsZip = async (
     // Fetch all files in parallel
     const filePromises = files.map(async (file) => {
       try {
-        const response = await fetch(file.url);
+        if (signal?.aborted) throw new Error('Download cancelled');
+        
+        const response = await fetch(file.url, { signal });
         if (!response.ok) throw new Error(`Failed to fetch ${file.name}`);
         
         const blob = await response.blob();
@@ -39,6 +42,9 @@ export const downloadFilesAsZip = async (
         completed++;
         onProgress?.(completed, files.length);
       } catch (error) {
+        if (error instanceof Error && error.message === 'Download cancelled') {
+          throw error;
+        }
         console.warn(`⚠️ Failed to download ${file.name}:`, error);
         // Continue with other files even if one fails
         completed++;
@@ -71,16 +77,21 @@ export const downloadFilesAsZip = async (
  */
 export const downloadFilesSequential = async (
   files: FileToDownload[],
-  onProgress?: (completed: number, total: number, currentFile: string) => void
+  onProgress?: (completed: number, total: number, currentFile: string) => void,
+  signal?: AbortSignal
 ): Promise<void> => {
   if (files.length === 0) {
     throw new Error('No files to download');
   }
 
   for (let i = 0; i < files.length; i++) {
+    if (signal?.aborted) {
+      throw new Error('Download cancelled');
+    }
+
     const file = files[i];
     try {
-      const response = await fetch(file.url);
+      const response = await fetch(file.url, { signal });
       if (!response.ok) throw new Error(`Failed to fetch ${file.name}`);
 
       const blob = await response.blob();
@@ -100,6 +111,9 @@ export const downloadFilesSequential = async (
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (error) {
+      if (error instanceof Error && error.message === 'Download cancelled') {
+        throw error;
+      }
       console.warn(`⚠️ Failed to download ${file.name}:`, error);
       onProgress?.(i + 1, files.length, file.name);
     }

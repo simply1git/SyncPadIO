@@ -6,7 +6,7 @@ import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, isEncrypted } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
-import { downloadFilesAsZip } from './utils/zipDownload';
+import { downloadFilesAsZip, downloadFilesSequential } from './utils/zipDownload';
 import { SnippetCard } from './components/SnippetCard';
 import { FileCard, FileData, formatSize } from './components/FileCard';
 import { ShareModal } from './components/ShareModal';
@@ -14,7 +14,7 @@ import { PreviewModal } from './components/PreviewModal';
 import {
   Share2, Users, Upload, LogOut,
   Plus, Lock, Unlock, ArrowRight, Zap,
-  Sun, Moon, Search, ClipboardList, Download
+  Sun, Moon, Search, ClipboardList, Download, X
 } from 'lucide-react';
 
 interface Snippet { id: string; text: string; sender_id: string; timestamp: number; }
@@ -62,6 +62,7 @@ export default function App() {
   const [showShare, setShowShare] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [downloadProgress, setDownloadProgress] = useState<{type: 'zip'|'individual', current: number, total: number} | null>(null);
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -69,6 +70,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Map of uploadId → abort function for cancellation
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
+  const downloadAbortRef = useRef<AbortController | null>(null);
   const [myUserId] = useState(getPersistentUserId);
 
   // ── Lifecycle hook ──────────────────────────────────────────────────────
@@ -304,6 +306,15 @@ export default function App() {
     setSelectedFileIds(new Set());
   };
 
+  const cancelDownload = () => {
+    if (downloadAbortRef.current) {
+      downloadAbortRef.current.abort();
+      setDownloadProgress(null);
+      downloadAbortRef.current = null;
+      toast.error('Download cancelled');
+    }
+  };
+
   const downloadSelectedFilesAsZip = async () => {
     if (selectedFileIds.size === 0) {
       toast.error('No files selected');
@@ -311,22 +322,29 @@ export default function App() {
     }
 
     const selectedFiles = files.filter(f => selectedFileIds.has(f.id));
-    const loadingToastId = toast.loading('Creating zip file...');
+    downloadAbortRef.current = new AbortController();
+    setDownloadProgress({ type: 'zip', current: 0, total: selectedFiles.length });
+    
     try {
       await downloadFilesAsZip(
         selectedFiles.map(f => ({ name: f.name, url: f.url })),
         `SyncPadIO-${roomId}`,
         (current, total) => {
-          const progress = Math.round((current / total) * 100);
-          toast.loading(`Preparing zip: ${progress}%`, { id: loadingToastId });
-        }
+          setDownloadProgress({ type: 'zip', current, total });
+        },
+        downloadAbortRef.current.signal
       );
-      toast.success('Download started!', { id: loadingToastId });
+      toast.success('Download started!');
       setSelectedFileIds(new Set());
       updateLastActivity();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Download failed';
-      toast.error(msg, { id: loadingToastId });
+      if (msg !== 'Download cancelled') {
+        toast.error(msg);
+      }
+    } finally {
+      setDownloadProgress(null);
+      downloadAbortRef.current = null;
     }
   };
 
@@ -337,35 +355,28 @@ export default function App() {
     }
 
     const selectedFiles = files.filter(f => selectedFileIds.has(f.id));
-    const loadingToastId = toast.loading(`Downloading 1/${selectedFiles.length}...`);
+    downloadAbortRef.current = new AbortController();
+    setDownloadProgress({ type: 'individual', current: 0, total: selectedFiles.length });
+    
     try {
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
-        const response = await fetch(file.url);
-        if (!response.ok) throw new Error(`Failed to fetch ${file.name}`);
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-
-        toast.loading(`Downloading ${i + 1}/${selectedFiles.length}...`, { id: loadingToastId });
-
-        if (i < selectedFiles.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-      toast.success('Downloads started!', { id: loadingToastId });
+      await downloadFilesSequential(
+        selectedFiles.map(f => ({ name: f.name, url: f.url })),
+        (current, total) => {
+          setDownloadProgress({ type: 'individual', current, total });
+        },
+        downloadAbortRef.current.signal
+      );
+      toast.success('Downloads started!');
       setSelectedFileIds(new Set());
       updateLastActivity();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Download failed';
-      toast.error(msg, { id: loadingToastId });
+      if (msg !== 'Download cancelled') {
+        toast.error(msg);
+      }
+    } finally {
+      setDownloadProgress(null);
+      downloadAbortRef.current = null;
     }
   };
 
@@ -662,33 +673,55 @@ export default function App() {
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2">
                         <p className="text-xs font-medium" style={{ color: 'var(--text)' }}>
-                          {selectedFileIds.size} of {files.length} selected
+                          {downloadProgress ? (
+                            <>
+                              {downloadProgress.current} of {downloadProgress.total} {downloadProgress.type === 'zip' ? 'files preparing' : 'files downloading'}...
+                            </>
+                          ) : (
+                            `${selectedFileIds.size} of ${files.length} selected`
+                          )}
                         </p>
-                        <button
-                          onClick={deselectAllFiles}
-                          className="btn-ghost px-2 py-1 text-xs"
-                          title="Clear selection"
-                        >
-                          Clear
-                        </button>
+                        {!downloadProgress && (
+                          <button
+                            onClick={deselectAllFiles}
+                            className="btn-ghost px-2 py-1 text-xs"
+                            title="Clear selection"
+                          >
+                            Clear
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={downloadSelectedFilesAsZip}
-                          className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
-                          title="Download selected files as zip"
-                        >
-                          <Download size={12} />
-                          Zip
-                        </button>
-                        <button
-                          onClick={downloadSelectedFilesIndividual}
-                          className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
-                          title="Download selected files individually"
-                        >
-                          <Download size={12} />
-                          Individual
-                        </button>
+                        {downloadProgress ? (
+                          <button
+                            onClick={cancelDownload}
+                            className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                            style={{ background: '#ef4444' }}
+                            title="Cancel download"
+                          >
+                            <X size={12} />
+                            Cancel
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={downloadSelectedFilesAsZip}
+                              className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                              title="Download selected files as zip"
+                            >
+                              <Download size={12} />
+                              Zip
+                            </button>
+                            <button
+                              onClick={downloadSelectedFilesIndividual}
+                              className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                              title="Download selected files individually"
+                            >
+                              <Download size={12} />
+                              Individual
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

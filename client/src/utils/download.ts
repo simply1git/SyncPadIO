@@ -8,9 +8,10 @@
 export async function downloadWithProgress(
   url: string,
   fileName: string,
-  onProgress: (pct: number) => void
+  onProgress: (pct: number) => void,
+  signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   const contentLength = res.headers.get('Content-Length');
@@ -31,6 +32,10 @@ export async function downloadWithProgress(
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    if (signal?.aborted) {
+      reader.cancel('Download cancelled by user');
+      throw new Error('Download cancelled');
+    }
     const { done, value } = await reader.read();
     if (done) break;
     chunks.push(value);

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive, CheckCircle2, Circle } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive, CheckCircle2, Circle, X } from 'lucide-react';
 import { downloadWithProgress } from '../utils/download';
 
 export interface FileData {
@@ -46,6 +46,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
   const [hover, setHover] = useState(false);
   // null = idle, -1 = indeterminate, 0-100 = real progress
   const [dlProgress, setDlProgress] = useState<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const { Icon, color, bg, isImage, isVideo } = getFileType(file.name);
   const canPreview = isImage || isVideo || file.name.toLowerCase().endsWith('.pdf');
   const timeStr = new Date(file.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -54,13 +55,29 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
   const handleDownload = async () => {
     if (isDownloading) return;
     setDlProgress(0);
+    abortControllerRef.current = new AbortController();
     try {
-      await downloadWithProgress(file.url, file.name, (pct) => setDlProgress(pct));
-    } catch {
-      window.open(file.url, '_blank');
+      await downloadWithProgress(file.url, file.name, (pct) => setDlProgress(pct), abortControllerRef.current.signal);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Download cancelled') {
+        // Download was cancelled
+      } else {
+        window.open(file.url, '_blank');
+      }
     } finally {
-      // Keep 100% shown briefly, then reset
-      setTimeout(() => setDlProgress(null), 1500);
+      // Keep 100% shown briefly, then reset (unless cancelled)
+      if (dlProgress !== null) {
+        setTimeout(() => setDlProgress(null), 1500);
+      }
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelDownload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setDlProgress(null);
+      abortControllerRef.current = null;
     }
   };
 
@@ -150,27 +167,39 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
 
         {/* Actions */}
         <div className="flex gap-2">
-          <button
-            onClick={handleDownload}
-            disabled={isDownloading}
-            className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
-            style={{ color: isDownloading ? 'var(--accent)' : 'var(--text-muted)' }}
-            title="Download file"
-          >
-            <Download size={12} />
-            {isDownloading
-              ? (dlProgress === -1 ? 'Downloading…' : `${dlProgress}%`)
-              : dlProgress === 100 ? 'Done ✓' : 'Download'
-            }
-          </button>
-          <button
-            onClick={() => onDelete(file.id, file.url)}
-            className="btn-ghost p-1.5"
-            title="Delete"
-            disabled={isDownloading}
-          >
-            <Trash2 size={13} style={{ color: '#ef4444' }} />
-          </button>
+          {isDownloading ? (
+            <>
+              <button
+                onClick={handleCancelDownload}
+                className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
+                style={{ color: '#ef4444' }}
+                title="Cancel download"
+              >
+                <X size={12} />
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
+                style={{ color: 'var(--text-muted)' }}
+                title="Download file"
+              >
+                <Download size={12} />
+                {dlProgress === 100 ? 'Done ✓' : 'Download'}
+              </button>
+              <button
+                onClick={() => onDelete(file.id, file.url)}
+                className="btn-ghost p-1.5"
+                title="Delete"
+              >
+                <Trash2 size={13} style={{ color: '#ef4444' }} />
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
