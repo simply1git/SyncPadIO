@@ -6,6 +6,7 @@ import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, isEncrypted } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
+import { downloadFilesAsZip } from './utils/zipDownload';
 import { SnippetCard } from './components/SnippetCard';
 import { FileCard, FileData, formatSize } from './components/FileCard';
 import { ShareModal } from './components/ShareModal';
@@ -13,7 +14,7 @@ import { PreviewModal } from './components/PreviewModal';
 import {
   Share2, Users, Upload, LogOut,
   Plus, Lock, Unlock, ArrowRight, Zap,
-  Sun, Moon, Search, ClipboardList
+  Sun, Moon, Search, ClipboardList, Download
 } from 'lucide-react';
 
 interface Snippet { id: string; text: string; sender_id: string; timestamp: number; }
@@ -21,6 +22,17 @@ interface UploadItem { id: string; name: string; progress: number; done: boolean
 
 const genId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const genUserId = () => Math.random().toString(36).slice(2, 10);
+
+// Get or create persistent user ID
+const getPersistentUserId = (): string => {
+  const STORAGE_KEY = 'syncpad_user_id';
+  let userId = localStorage.getItem(STORAGE_KEY);
+  if (!userId) {
+    userId = genUserId();
+    localStorage.setItem(STORAGE_KEY, userId);
+  }
+  return userId;
+};
 
 export default function App() {
   // ── Room state ──────────────────────────────────────────────────────────
@@ -56,7 +68,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Map of uploadId → abort function for cancellation
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
-  const [myUserId] = useState(genUserId);
+  const [myUserId] = useState(getPersistentUserId);
 
   // ── Lifecycle hook ──────────────────────────────────────────────────────
   const onRoomDeleted = useCallback(() => {
@@ -263,6 +275,30 @@ export default function App() {
     if (path) { try { await deleteFileFromRoom(id, path); } catch { /* ignore */ } }
     updateLastActivity();
     toast.success('File deleted');
+  };
+
+  const downloadAllFiles = async () => {
+    if (files.length === 0) {
+      toast.error('No files to download');
+      return;
+    }
+
+    const loadingToastId = toast.loading('Creating zip file...');
+    try {
+      await downloadFilesAsZip(
+        files.map(f => ({ name: f.name, url: f.url })),
+        `SyncPadIO-${roomId}`,
+        (current, total) => {
+          const progress = Math.round((current / total) * 100);
+          toast.loading(`Preparing zip: ${progress}%`, { id: loadingToastId });
+        }
+      );
+      toast.success('Download started!', { id: loadingToastId });
+      updateLastActivity();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Download failed';
+      toast.error(msg, { id: loadingToastId });
+    }
   };
 
   // ── Drag & drop ─────────────────────────────────────────────────────────
@@ -541,9 +577,19 @@ export default function App() {
               </div>
             ) : (
               <>
-                <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                  {files.length} file{files.length !== 1 ? 's' : ''} · {formatSize(files.reduce((a, f) => a + f.size, 0))} total
-                </p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {files.length} file{files.length !== 1 ? 's' : ''} · {formatSize(files.reduce((a, f) => a + f.size, 0))} total
+                  </p>
+                  <button
+                    onClick={downloadAllFiles}
+                    className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                    title="Download all files as zip"
+                  >
+                    <Download size={12} />
+                    Download All
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
                   {files.map(f => (
                     <FileCard key={f.id} file={f} onDelete={deleteFile} onPreview={setPreviewFile} />
