@@ -17,7 +17,7 @@ import {
   Sun, Moon, Search, ClipboardList, Download, X
 } from 'lucide-react';
 
-interface Snippet { id: string; text: string; sender_id: string; timestamp: number; }
+interface Snippet { id: string; text: string; sender_id: string; timestamp: number; sender_name?: string; }
 interface UploadItem { id: string; name: string; progress: number; done: boolean; error?: string; cancelled?: boolean; }
 
 const genId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -63,6 +63,9 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [downloadProgress, setDownloadProgress] = useState<{type: 'zip'|'individual', current: number, total: number} | null>(null);
+  const [userName, setUserName] = useState('');
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [customRoomCode, setCustomRoomCode] = useState('');
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -188,9 +191,53 @@ export default function App() {
     if (Notification.permission === 'default') Notification.requestPermission();
   };
 
+  // ── Get or create persistent user name ──────────────────────────────────
+  const getPersistentUserName = (): string => {
+    const STORAGE_KEY = 'syncpad_user_name';
+    const name = localStorage.getItem(STORAGE_KEY);
+    return name || '';
+  };
+
+  const saveUserName = (name: string) => {
+    localStorage.setItem('syncpad_user_name', name);
+    setUserName(name);
+  };
+
+  // Initialize user name from localStorage on mount
+  useEffect(() => {
+    setUserName(getPersistentUserName());
+  }, []);
+
   // ── Create / Join ───────────────────────────────────────────────────────
-  const createRoom = () => joinRoomRealtime(genId());
-  const joinRoom = (e: React.FormEvent) => { e.preventDefault(); joinRoomRealtime(joinInput); };
+  const createRoom = () => {
+    if (!userName.trim()) {
+      setShowNameModal(true);
+      return;
+    }
+    joinRoomRealtime(genId());
+  };
+
+  const createRoomWithCustomCode = () => {
+    if (!customRoomCode.trim()) {
+      toast.error('Please enter a room code');
+      return;
+    }
+    if (!userName.trim()) {
+      setShowNameModal(true);
+      return;
+    }
+    joinRoomRealtime(customRoomCode.toUpperCase());
+    setCustomRoomCode('');
+  };
+
+  const joinRoom = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userName.trim()) {
+      setShowNameModal(true);
+      return;
+    }
+    joinRoomRealtime(joinInput);
+  };
 
   const leaveRoom = async () => {
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
@@ -201,6 +248,15 @@ export default function App() {
     toast('Left room', { icon: '👋' });
   };
 
+  const handleSetUserName = (name: string) => {
+    if (!name.trim()) {
+      toast.error('Name cannot be empty');
+      return;
+    }
+    saveUserName(name);
+    setShowNameModal(false);
+  };
+
   // ── Snippets ────────────────────────────────────────────────────────────
   const addSnippet = async () => {
     if (!text.trim() || !isJoined) return;
@@ -208,10 +264,10 @@ export default function App() {
     setText('');
     const now = Date.now();
     const body = encryptMode ? await encryptText(raw, roomId) : raw;
-    const optimistic: Snippet = { id: `opt-${now}`, text: body, sender_id: myUserId, timestamp: now };
+    const optimistic: Snippet = { id: `opt-${now}`, text: body, sender_id: myUserId, timestamp: now, sender_name: userName };
     setSnippets(prev => [...prev, optimistic]);
     const { data, error } = await supabase.from('snippets')
-      .insert({ room_id: roomId, text: body, sender_id: myUserId, timestamp: now })
+      .insert({ room_id: roomId, text: body, sender_id: myUserId, timestamp: now, sender_name: userName })
       .select().single();
     if (error) {
       console.error('Snippet send error:', error);
@@ -239,7 +295,7 @@ export default function App() {
     const uid = `${Date.now()}-${file.name}`;
     setUploads(prev => [...prev, { id: uid, name: file.name, progress: 0, done: false }]);
     const { promise, abort } = uploadFileToRoom({
-      roomId, file,
+      roomId, file, uploaderName: userName,
       onProgress: (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u))
     });
     abortMapRef.current.set(uid, abort);
@@ -423,16 +479,48 @@ export default function App() {
       </div>
 
       <div className="w-full" style={{ maxWidth: 400 }}>
+        {/* Your Name */}
+        <div className="mb-5">
+          <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>YOUR NAME</p>
+          <input
+            id="user-name-input"
+            className="input-dark w-full px-4 py-3 text-base"
+            placeholder="Enter your name"
+            value={userName}
+            onChange={e => setUserName(e.target.value)}
+            maxLength={30}
+          />
+          <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>Others will see this name with your messages</p>
+        </div>
+
         {/* Create room */}
         <button
           onClick={createRoom}
           disabled={isJoining}
-          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-4"
+          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-3"
           id="create-room-btn"
         >
           <Plus size={18} />
-          {isJoining ? 'Creating…' : 'Start New Session'}
+          {isJoining ? 'Creating…' : 'Create New Session'}
         </button>
+
+        {/* Create with custom code */}
+        <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>CREATE YOUR OWN CODE</p>
+          <form onSubmit={(e) => { e.preventDefault(); createRoomWithCustomCode(); }} className="flex gap-2">
+            <input
+              id="custom-code-input"
+              className="input-dark flex-1 px-3 py-2 font-mono text-sm uppercase tracking-widest"
+              placeholder="MYCODE"
+              value={customRoomCode}
+              onChange={e => setCustomRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+              maxLength={8}
+            />
+            <button type="submit" disabled={!customRoomCode || isJoining} className="btn-accent px-3 py-2">
+              Create
+            </button>
+          </form>
+        </div>
 
         {/* Divider */}
         <div className="flex items-center gap-3 mb-4">
@@ -488,6 +576,17 @@ export default function App() {
               }
             />
             <span className="font-bold text-sm" style={{ color: 'var(--text)' }}>SyncPad<span style={{ color: 'var(--accent)' }}>IO</span></span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <button
+              onClick={() => setShowNameModal(true)}
+              className="btn-ghost px-2 py-1 rounded-md text-xs"
+              style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)' }}
+              title="Edit your name"
+            >
+              {userName || 'Set Name'}
+            </button>
+            <span style={{ color: 'var(--text-faint)' }}>•</span>
           </div>
           <button
             onClick={() => { navigator.clipboard.writeText(roomId); toast.success('Room code copied!'); }}
@@ -768,6 +867,55 @@ export default function App() {
       {/* ── Modals ── */}
       {showShare && <ShareModal roomId={roomId} userCount={userCount} onClose={() => setShowShare(false)} />}
       {previewFile && <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+      
+      {/* Name modal */}
+      {showNameModal && (
+        <div
+          className="fixed inset-0 flex items-center justify-center p-4 z-50"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+          onClick={() => setShowNameModal(false)}
+        >
+          <div
+            className="rounded-xl p-6 w-full"
+            style={{ maxWidth: 400, background: 'var(--surface)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4" style={{ color: 'var(--text)' }}>Enter Your Name</h2>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+              This name will appear with all your messages and files
+            </p>
+            <input
+              id="modal-name-input"
+              type="text"
+              className="input-dark w-full px-4 py-3 mb-4"
+              placeholder="Your name"
+              value={userName}
+              onChange={e => setUserName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  handleSetUserName(userName);
+                }
+              }}
+              maxLength={30}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowNameModal(false)}
+                className="btn-ghost flex-1 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSetUserName(userName)}
+                className="btn-accent flex-1 py-2 text-sm font-semibold"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

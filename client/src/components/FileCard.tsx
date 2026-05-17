@@ -9,6 +9,7 @@ export interface FileData {
   url: string;
   timestamp: number;
   storage_path: string;
+  uploader_name?: string;
 }
 
 interface Props {
@@ -136,7 +137,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
           {file.name}
         </p>
         <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-          {formatSize(file.size)} · {timeStr}
+          {file.uploader_name ? `Uploaded by ${file.uploader_name} · ` : ''}{formatSize(file.size)} · {timeStr}
         </p>
 
         {/* Download progress bar */}

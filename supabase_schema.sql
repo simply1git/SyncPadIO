@@ -16,6 +16,7 @@ create table snippets (
   room_id text not null references rooms(id) on delete cascade,
   text text not null,
   sender_id text not null,
+  sender_name text,
   "timestamp" bigint not null
 );
 
@@ -37,7 +38,8 @@ create table files (
   size bigint not null,
   url text not null,
   "timestamp" bigint not null,
-  storage_path text not null
+  storage_path text not null,
+  uploader_name text
 );
 
 -- 5. Add tables to Realtime publication

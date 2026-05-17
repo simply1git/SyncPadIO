@@ -3,6 +3,7 @@ import { supabase, supabaseUrl, supabaseAnonKey } from '../supabaseClient';
 interface UploadFileOptions {
   roomId: string;
   file: File;
+  uploaderName?: string;
   onProgress?: (progress: number) => void;
 }
 
@@ -19,7 +20,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
  * Returns { promise, abort } so callers can cancel mid-upload.
  */
 export const uploadFileToRoom = ({
-  roomId, file, onProgress,
+  roomId, file, uploaderName, onProgress,
 }: UploadFileOptions): UploadResult => {
   let xhr: XMLHttpRequest;
 
@@ -50,7 +51,7 @@ export const uploadFileToRoom = ({
         const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(storagePath);
         const { data: fileRecord, error: dbError } = await supabase
           .from('files')
-          .insert({ room_id: roomId, name: file.name, size: file.size, url: urlData.publicUrl, timestamp, storage_path: storagePath })
+          .insert({ room_id: roomId, name: file.name, size: file.size, url: urlData.publicUrl, timestamp, storage_path: storagePath, uploader_name: uploaderName })
           .select().single();
         if (dbError) {
           await supabase.storage.from('uploads').remove([storagePath]);

@@ -8,6 +8,7 @@ interface Snippet {
   text: string;
   sender_id: string;
   timestamp: number;
+  sender_name?: string;
 }
 
 interface Props {
@@ -58,9 +59,15 @@ export function SnippetCard({ snippet, myUserId, roomId, onDelete }: Props) {
             className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
             style={{ background: `hsl(${Math.abs(snippet.sender_id.charCodeAt(0) * 37) % 360}, 60%, 45%)` }}
           >
-            {snippet.sender_id[0]?.toUpperCase()}
+            {(snippet.sender_name?.[0] || snippet.sender_id[0])?.toUpperCase()}
           </div>
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{timeStr}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+              {snippet.sender_name || 'Anonymous'}
+            </span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>·</span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{timeStr}</span>
+          </div>
           {encrypted && (
             <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308' }}>
               <Lock size={10} /> encrypted
