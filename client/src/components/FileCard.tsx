@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive } from 'lucide-react';
+import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive, CheckCircle2, Circle } from 'lucide-react';
 import { downloadWithProgress } from '../utils/download';
 
 export interface FileData {
@@ -13,6 +13,8 @@ export interface FileData {
 
 interface Props {
   file: FileData;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
   onDelete: (id: string, url: string) => void;
   onPreview: (file: FileData) => void;
 }
@@ -40,7 +42,7 @@ export function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function FileCard({ file, onDelete, onPreview }: Props) {
+export function FileCard({ file, selected = false, onSelect, onDelete, onPreview }: Props) {
   const [hover, setHover] = useState(false);
   // null = idle, -1 = indeterminate, 0-100 = real progress
   const [dlProgress, setDlProgress] = useState<number | null>(null);
@@ -64,10 +66,29 @@ export function FileCard({ file, onDelete, onPreview }: Props) {
 
   return (
     <div
-      className="file-card slide-up"
+      className="file-card slide-up relative"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
+      {/* Selection checkbox */}
+      {onSelect && (
+        <button
+          onClick={() => onSelect(file.id)}
+          className="absolute top-2 left-2 z-10 p-1 rounded-full transition-all"
+          style={{
+            background: selected ? 'var(--accent)' : 'rgba(0,0,0,0.3)',
+            opacity: hover || selected ? 1 : 0.5
+          }}
+          title={selected ? 'Deselect' : 'Select'}
+        >
+          {selected ? (
+            <CheckCircle2 size={18} color="#fff" fill="#fff" />
+          ) : (
+            <Circle size={18} color="#fff" />
+          )}
+        </button>
+      )}
+
       {/* Thumbnail / Icon */}
       <div
         className="relative flex items-center justify-center overflow-hidden"

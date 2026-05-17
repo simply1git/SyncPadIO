@@ -58,6 +58,7 @@ export default function App() {
   // ── UI ──────────────────────────────────────────────────────────────────
   const [dragActive, setDragActive] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [showShare, setShowShare] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -275,18 +276,45 @@ export default function App() {
     if (path) { try { await deleteFileFromRoom(id, path); } catch { /* ignore */ } }
     updateLastActivity();
     toast.success('File deleted');
+    // Remove from selection if it was selected
+    setSelectedFileIds(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(id);
+      return newSet;
+    });
   };
 
-  const downloadAllFiles = async () => {
-    if (files.length === 0) {
-      toast.error('No files to download');
+  const toggleFileSelection = (fileId: string) => {
+    setSelectedFileIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
+      } else {
+        newSet.add(fileId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllFiles = () => {
+    setSelectedFileIds(new Set(files.map(f => f.id)));
+  };
+
+  const deselectAllFiles = () => {
+    setSelectedFileIds(new Set());
+  };
+
+  const downloadSelectedFilesAsZip = async () => {
+    if (selectedFileIds.size === 0) {
+      toast.error('No files selected');
       return;
     }
 
+    const selectedFiles = files.filter(f => selectedFileIds.has(f.id));
     const loadingToastId = toast.loading('Creating zip file...');
     try {
       await downloadFilesAsZip(
-        files.map(f => ({ name: f.name, url: f.url })),
+        selectedFiles.map(f => ({ name: f.name, url: f.url })),
         `SyncPadIO-${roomId}`,
         (current, total) => {
           const progress = Math.round((current / total) * 100);
@@ -294,11 +322,57 @@ export default function App() {
         }
       );
       toast.success('Download started!', { id: loadingToastId });
+      setSelectedFileIds(new Set());
       updateLastActivity();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Download failed';
       toast.error(msg, { id: loadingToastId });
     }
+  };
+
+  const downloadSelectedFilesIndividual = async () => {
+    if (selectedFileIds.size === 0) {
+      toast.error('No files selected');
+      return;
+    }
+
+    const selectedFiles = files.filter(f => selectedFileIds.has(f.id));
+    const loadingToastId = toast.loading(`Downloading 1/${selectedFiles.length}...`);
+    try {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const response = await fetch(file.url);
+        if (!response.ok) throw new Error(`Failed to fetch ${file.name}`);
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        toast.loading(`Downloading ${i + 1}/${selectedFiles.length}...`, { id: loadingToastId });
+
+        if (i < selectedFiles.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      toast.success('Downloads started!', { id: loadingToastId });
+      setSelectedFileIds(new Set());
+      updateLastActivity();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Download failed';
+      toast.error(msg, { id: loadingToastId });
+    }
+  };
+
+  const downloadAllFiles = async () => {
+    selectAllFiles();
+    // Small delay to ensure state updates
+    setTimeout(() => downloadSelectedFilesAsZip(), 0);
   };
 
   // ── Drag & drop ─────────────────────────────────────────────────────────
@@ -581,18 +655,75 @@ export default function App() {
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {files.length} file{files.length !== 1 ? 's' : ''} · {formatSize(files.reduce((a, f) => a + f.size, 0))} total
                   </p>
-                  <button
-                    onClick={downloadAllFiles}
-                    className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
-                    title="Download all files as zip"
-                  >
-                    <Download size={12} />
-                    Download All
-                  </button>
                 </div>
+
+                {selectedFileIds.size > 0 && (
+                  <div className="mb-3 p-3 rounded-lg" style={{ background: 'var(--accent-glow)', border: '1px solid var(--accent)' }}>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+                          {selectedFileIds.size} of {files.length} selected
+                        </p>
+                        <button
+                          onClick={deselectAllFiles}
+                          className="btn-ghost px-2 py-1 text-xs"
+                          title="Clear selection"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={downloadSelectedFilesAsZip}
+                          className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                          title="Download selected files as zip"
+                        >
+                          <Download size={12} />
+                          Zip
+                        </button>
+                        <button
+                          onClick={downloadSelectedFilesIndividual}
+                          className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                          title="Download selected files individually"
+                        >
+                          <Download size={12} />
+                          Individual
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {files.length > 0 && selectedFileIds.size === 0 && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <button
+                      onClick={selectAllFiles}
+                      className="btn-ghost px-2 py-1 text-xs"
+                      title="Select all files"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={downloadAllFiles}
+                      className="btn-accent flex items-center gap-1 px-2 py-1 text-xs"
+                      title="Download all files as zip"
+                    >
+                      <Download size={12} />
+                      Download All (Zip)
+                    </button>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
                   {files.map(f => (
-                    <FileCard key={f.id} file={f} onDelete={deleteFile} onPreview={setPreviewFile} />
+                    <FileCard
+                      key={f.id}
+                      file={f}
+                      selected={selectedFileIds.has(f.id)}
+                      onSelect={toggleFileSelection}
+                      onDelete={deleteFile}
+                      onPreview={setPreviewFile}
+                    />
                   ))}
                 </div>
               </>
