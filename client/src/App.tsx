@@ -14,7 +14,7 @@ import { PreviewModal } from './components/PreviewModal';
 import {
   Share2, Users, Upload, LogOut,
   Plus, Lock, Unlock, ArrowRight, Zap,
-  Sun, Moon, Search, ClipboardList, Download, X
+  Sun, Moon, Search, ClipboardList, Download, X, ChevronDown
 } from 'lucide-react';
 
 interface Snippet { id: string; text: string; sender_id: string; timestamp: number; sender_name?: string; }
@@ -66,6 +66,7 @@ export default function App() {
   const [userName, setUserName] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [customRoomCode, setCustomRoomCode] = useState('');
+  const [showCustomCode, setShowCustomCode] = useState(false);
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -478,71 +479,104 @@ export default function App() {
         </p>
       </div>
 
-      <div className="w-full" style={{ maxWidth: 400 }}>
-        {/* Your Name */}
-        <div className="mb-5">
-          <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>YOUR NAME</p>
-          <input
-            id="user-name-input"
-            className="input-dark w-full px-4 py-3 text-base"
-            placeholder="Enter your name"
-            value={userName}
-            onChange={e => setUserName(e.target.value)}
-            maxLength={30}
-          />
-          <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>Others will see this name with your messages</p>
+      <div className="w-full" style={{ maxWidth: 420 }}>
+        {/* Section labels */}
+        <div className="mb-6 space-y-4">
+          {/* Your Name */}
+          <div>
+            <label className="text-xs font-bold tracking-wide" style={{ color: 'var(--accent)' }}>👤 YOUR NAME</label>
+            <input
+              id="user-name-input"
+              className="input-dark w-full px-4 py-3 text-base mt-2"
+              placeholder="Enter your name"
+              value={userName}
+              onChange={e => setUserName(e.target.value)}
+              maxLength={30}
+            />
+            <p className="text-xs mt-1.5" style={{ color: 'var(--text-faint)' }}>Others will see this with your messages & files</p>
+          </div>
+
+          {/* Create New Session */}
+          <div>
+            <label className="text-xs font-bold tracking-wide" style={{ color: 'var(--accent)' }}>🎲 QUICK START</label>
+            <button
+              onClick={createRoom}
+              disabled={isJoining}
+              className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mt-2"
+              id="create-room-btn"
+            >
+              <Plus size={18} />
+              {isJoining ? 'Creating…' : 'Create New Session'}
+            </button>
+            <p className="text-xs mt-1.5" style={{ color: 'var(--text-faint)' }}>Generates a random room code</p>
+          </div>
         </div>
 
-        {/* Create room */}
+        {/* Collapsible Custom Code Section */}
         <button
-          onClick={createRoom}
-          disabled={isJoining}
-          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-3"
-          id="create-room-btn"
+          onClick={() => setShowCustomCode(!showCustomCode)}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-lg mb-4 transition-all"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
         >
-          <Plus size={18} />
-          {isJoining ? 'Creating…' : 'Create New Session'}
+          <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+            💡 Create Custom Room Code
+          </span>
+          <ChevronDown 
+            size={16} 
+            style={{ 
+              color: 'var(--text-muted)', 
+              transform: showCustomCode ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s'
+            }} 
+          />
         </button>
 
-        {/* Create with custom code */}
-        <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>CREATE YOUR OWN CODE</p>
-          <form onSubmit={(e) => { e.preventDefault(); createRoomWithCustomCode(); }} className="flex gap-2">
-            <input
-              id="custom-code-input"
-              className="input-dark flex-1 px-3 py-2 font-mono text-sm uppercase tracking-widest"
-              placeholder="MYCODE"
-              value={customRoomCode}
-              onChange={e => setCustomRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-              maxLength={8}
-            />
-            <button type="submit" disabled={!customRoomCode || isJoining} className="btn-accent px-3 py-2">
-              Create
-            </button>
-          </form>
-        </div>
+        {showCustomCode && (
+          <div className="mb-4 p-4 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-muted)' }}>📝 ROOM CODE</p>
+            <form onSubmit={(e) => { e.preventDefault(); createRoomWithCustomCode(); }} className="flex gap-2">
+              <input
+                id="custom-code-input"
+                className="input-dark flex-1 px-3 py-2 font-mono text-sm uppercase tracking-widest"
+                placeholder="e.g., MYCODE"
+                value={customRoomCode}
+                onChange={e => setCustomRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+                maxLength={8}
+                autoFocus
+              />
+              <button type="submit" disabled={!customRoomCode || isJoining} className="btn-accent px-3 py-2 font-semibold">
+                Create
+              </button>
+            </form>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-faint)' }}>Specify your own room code (1-8 chars)</p>
+          </div>
+        )}
 
         {/* Divider */}
         <div className="flex items-center gap-3 mb-4">
           <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-          <span className="text-xs" style={{ color: 'var(--text-faint)' }}>or join existing</span>
+          <span className="text-xs" style={{ color: 'var(--text-faint)' }}>or</span>
           <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
         </div>
 
         {/* Join room */}
-        <form onSubmit={joinRoom} className="flex gap-2">
-          <input
-            id="join-room-input"
-            className="input-dark flex-1 px-4 py-3 font-mono text-lg uppercase tracking-widest"
-            placeholder="ROOM CODE"
-            value={joinInput}
-            onChange={e => setJoinInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-            maxLength={8}
-          />
-          <button type="submit" disabled={!joinInput || isJoining} className="btn-accent px-4 py-3">
-            <ArrowRight size={20} />
-          </button>
-        </form>
+        <div>
+          <label className="text-xs font-bold tracking-wide" style={{ color: 'var(--accent)' }}>🔓 JOIN EXISTING</label>
+          <form onSubmit={joinRoom} className="flex gap-2 mt-2">
+            <input
+              id="join-room-input"
+              className="input-dark flex-1 px-4 py-3 font-mono text-lg uppercase tracking-widest"
+              placeholder="ROOM CODE"
+              value={joinInput}
+              onChange={e => setJoinInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+              maxLength={8}
+            />
+            <button type="submit" disabled={!joinInput || isJoining} className="btn-accent px-4 py-3">
+              <ArrowRight size={20} />
+            </button>
+          </form>
+          <p className="text-xs mt-1.5" style={{ color: 'var(--text-faint)' }}>Enter the room code to join</p>
+        </div>
 
       </div>
     </div>
