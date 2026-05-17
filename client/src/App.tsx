@@ -115,81 +115,100 @@ export default function App() {
   }, []); // eslint-disable-line
 
   // ── joinRoomRealtime ────────────────────────────────────────────────────
-  const joinRoomRealtime = async (id: string) => {
+  const joinRoomRealtime = async (id: string, checkExists: boolean = false) => {
     const cleanId = id.trim().toUpperCase();
     if (!cleanId) return;
     setIsJoining(true);
-    setRoomId(cleanId);
-    window.history.replaceState({}, '', `?room=${cleanId}`);
 
-    if (channelRef.current) await supabase.removeChannel(channelRef.current);
+    try {
+      // If checkExists is true, verify the room exists
+      if (checkExists) {
+        const { data: roomData, error: roomError } = await supabase
+          .from('rooms')
+          .select('id')
+          .eq('id', cleanId)
+          .single();
 
-    // Ensure room exists in database
-    const now = Date.now();
-    await supabase.from('rooms').upsert({
-      id: cleanId,
-      created_at: now,
-      last_activity: now,
-      status: 'active'
-    }, { onConflict: 'id' });
-
-    const [snippetRes, fileRes] = await Promise.all([
-      supabase.from('snippets').select('*').eq('room_id', cleanId).order('timestamp'),
-      supabase.from('files').select('*').eq('room_id', cleanId).order('timestamp'),
-    ]);
-    if (snippetRes.data) setSnippets(snippetRes.data as Snippet[]);
-    if (fileRes.data) setFiles(fileRes.data as FileData[]);
-
-    const ch = supabase.channel(`room:${cleanId}`);
-
-    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
-      (p) => setSnippets(prev => prev.find(s => s.id === p.new.id) ? prev : [...prev, p.new as Snippet])
-    )
-    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
-      (p) => setSnippets(prev => prev.filter(s => s.id !== p.old.id))
-    )
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
-      (p) => setFiles(prev => prev.find(f => f.id === p.new.id) ? prev : [...prev, p.new as FileData])
-    )
-    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
-      (p) => setFiles(prev => prev.filter(f => f.id !== p.old.id))
-    )
-    .on('presence', { event: 'sync' }, () => {
-      const state = ch.presenceState();
-      const count = Object.values(state).reduce((a, v) => a + v.length, 0);
-      setUserCount(Math.max(1, count));
-      if (cleanupTimerRef.current) { clearTimeout(cleanupTimerRef.current); cleanupTimerRef.current = null; }
-    })
-    .on('presence', { event: 'leave' }, () => {
-      const state = ch.presenceState();
-      const count = Object.values(state).reduce((a, v) => a + v.length, 0);
-      if (count === 0) {
-        cleanupTimerRef.current = setTimeout(() => deleteRoom(), 30_000);
+        if (roomError || !roomData) {
+          toast.error(`Room "${cleanId}" does not exist`);
+          setIsJoining(false);
+          return;
+        }
+      } else {
+        // Creating a new room - ensure it exists in database
+        const now = Date.now();
+        await supabase.from('rooms').upsert({
+          id: cleanId,
+          created_at: now,
+          last_activity: now,
+          status: 'active'
+        }, { onConflict: 'id' });
       }
-    })
-    .subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        setConnStatus('connected');
-        if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
-        await ch.track({ user: myUserId, joined: Date.now() });
-      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        setConnStatus('offline');
-        // Auto-reconnect after 5s
-        reconnectTimerRef.current = setTimeout(() => {
-          if (channelRef.current) {
-            setConnStatus('connecting');
-            channelRef.current.subscribe();
-          }
-        }, 5000);
-      }
-    });
 
-    channelRef.current = ch;
-    setConnStatus('connecting');
-    setIsJoined(true);
-    setIsJoining(false);
-    // Request browser notification permission (for background tab alerts)
-    if (Notification.permission === 'default') Notification.requestPermission();
+      setRoomId(cleanId);
+      window.history.replaceState({}, '', `?room=${cleanId}`);
+
+      if (channelRef.current) await supabase.removeChannel(channelRef.current);
+
+      const [snippetRes, fileRes] = await Promise.all([
+        supabase.from('snippets').select('*').eq('room_id', cleanId).order('timestamp'),
+        supabase.from('files').select('*').eq('room_id', cleanId).order('timestamp'),
+      ]);
+      if (snippetRes.data) setSnippets(snippetRes.data as Snippet[]);
+      if (fileRes.data) setFiles(fileRes.data as FileData[]);
+
+      const ch = supabase.channel(`room:${cleanId}`);
+
+      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
+        (p) => setSnippets(prev => prev.find(s => s.id === p.new.id) ? prev : [...prev, p.new as Snippet])
+      )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
+        (p) => setSnippets(prev => prev.filter(s => s.id !== p.old.id))
+      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
+        (p) => setFiles(prev => prev.find(f => f.id === p.new.id) ? prev : [...prev, p.new as FileData])
+      )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
+        (p) => setFiles(prev => prev.filter(f => f.id !== p.old.id))
+      )
+      .on('presence', { event: 'sync' }, () => {
+        const state = ch.presenceState();
+        const count = Object.values(state).reduce((a, v) => a + v.length, 0);
+        setUserCount(Math.max(1, count));
+        if (cleanupTimerRef.current) { clearTimeout(cleanupTimerRef.current); cleanupTimerRef.current = null; }
+      })
+      .on('presence', { event: 'leave' }, () => {
+        const state = ch.presenceState();
+        const count = Object.values(state).reduce((a, v) => a + v.length, 0);
+        if (count === 0) {
+          cleanupTimerRef.current = setTimeout(() => deleteRoom(), 30_000);
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          setConnStatus('connected');
+          if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+          await ch.track({ user: myUserId, joined: Date.now() });
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setConnStatus('offline');
+          // Auto-reconnect after 5s
+          reconnectTimerRef.current = setTimeout(() => {
+            if (channelRef.current) {
+              setConnStatus('connecting');
+              channelRef.current.subscribe();
+            }
+          }, 5000);
+        }
+      });
+
+      channelRef.current = ch;
+      setConnStatus('connecting');
+      setIsJoined(true);
+      // Request browser notification permission (for background tab alerts)
+      if (Notification.permission === 'default') Notification.requestPermission();
+    } finally {
+      setIsJoining(false);
+    }
   };
 
   // ── Get or create persistent user name ──────────────────────────────────
@@ -237,7 +256,7 @@ export default function App() {
       setShowNameModal(true);
       return;
     }
-    joinRoomRealtime(joinInput);
+    joinRoomRealtime(joinInput, true);
   };
 
   const leaveRoom = async () => {
