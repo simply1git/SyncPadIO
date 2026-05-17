@@ -66,7 +66,7 @@ export default function App() {
   const [userName, setUserName] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [customRoomCode, setCustomRoomCode] = useState('');
-  const [showCustomCodeForm, setShowCustomCodeForm] = useState(false);
+  const [showCustomCodeInput, setShowCustomCodeInput] = useState(false);
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -498,7 +498,7 @@ export default function App() {
         <button
           onClick={createRoom}
           disabled={isJoining}
-          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-2"
+          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-3"
           id="create-room-btn"
         >
           <Plus size={18} />
@@ -507,17 +507,17 @@ export default function App() {
 
         {/* Toggle custom code button */}
         <button
-          onClick={() => setShowCustomCodeForm(!showCustomCodeForm)}
-          className="btn-ghost w-full py-2 text-xs mb-4"
-          style={{ color: 'var(--text-muted)' }}
+          onClick={() => setShowCustomCodeInput(!showCustomCodeInput)}
+          className="btn-ghost w-full py-2 text-xs font-medium mb-3 text-center"
+          style={{ color: 'var(--accent)' }}
         >
-          {showCustomCodeForm ? '✕ Use Custom Code' : '+ Use Custom Code'}
+          {showCustomCodeInput ? '✕ Cancel' : '+ Create Your Own Code'}
         </button>
 
         {/* Create with custom code - conditional */}
-        {showCustomCodeForm && (
+        {showCustomCodeInput && (
           <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>CREATE YOUR OWN CODE</p>
+            <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>ENTER CUSTOM CODE</p>
             <form onSubmit={(e) => { e.preventDefault(); createRoomWithCustomCode(); }} className="flex gap-2">
               <input
                 id="custom-code-input"
@@ -526,6 +526,7 @@ export default function App() {
                 value={customRoomCode}
                 onChange={e => setCustomRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
                 maxLength={8}
+                autoFocus
               />
               <button type="submit" disabled={!customRoomCode || isJoining} className="btn-accent px-3 py-2">
                 Create
