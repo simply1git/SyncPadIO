@@ -42,7 +42,14 @@ export function ShareModal({ roomId, userCount, onClose }: Props) {
         {/* QR Code */}
         <div className="flex justify-center mb-6">
           <div className="p-4 rounded-xl" style={{ background: '#fff' }}>
-            <QRCodeCanvas value={url} size={160} level="M" />
+            <QRCodeCanvas 
+              value={url} 
+              size={200} 
+              level="H" 
+              includeMargin={true}
+              bgColor="#FFFFFF"
+              fgColor="#000000"
+            />
           </div>
         </div>
 
