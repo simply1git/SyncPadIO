@@ -58,7 +58,7 @@ export const useRoomLifecycle = ({
     try {
       const now = Date.now();
       const { error } = await supabase.from('rooms').upsert(
-        { id: roomId, created_at: now, last_activity: now, user_count: 1, status: 'active' },
+        { id: roomId, created_at: now, last_activity: now, status: 'active' },
         { onConflict: 'id', ignoreDuplicates: true }
       );
       if (error) { console.error('[Room] Init error:', error); return; }

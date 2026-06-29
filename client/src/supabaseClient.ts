@@ -25,8 +25,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
   }
 }
 
-// Create client with validation
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create client with validation (disable auth persistence to fix quota errors)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { persistSession: false }
+});
 
 // Export raw config for XHR-based uploads (progress tracking)
 export { supabaseUrl, supabaseAnonKey };

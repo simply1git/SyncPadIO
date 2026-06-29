@@ -2,6 +2,7 @@
  * Keep-Alive Utility
  * Periodically pings Supabase and Render backend to prevent them from pausing
  */
+import { supabase } from '../supabaseClient';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://fxjmaajktqehnaergnky.supabase.co';
 const RENDER_URL = import.meta.env.VITE_RENDER_URL || '';
@@ -53,9 +54,20 @@ const pingService = async (url: string, serviceName: string): Promise<boolean> =
  * Ping Supabase database
  */
 const pingSupabase = async (): Promise<boolean> => {
-  // Ping a simple Supabase endpoint that doesn't require auth
-  const healthUrl = `${SUPABASE_URL}/rest/v1/health`;
-  return pingService(healthUrl, 'Supabase');
+  try {
+    const { error } = await supabase.from('rooms').select('id').limit(1);
+    if (error) {
+      console.warn(`⚠️  Supabase ping failed:`, error.message);
+      return false;
+    }
+    
+    lastPingTimes['supabase'] = Date.now();
+    console.log(`✅ Supabase pinged successfully`);
+    return true;
+  } catch (err) {
+    console.warn(`⚠️  Error pinging Supabase:`, err);
+    return false;
+  }
 };
 
 /**
