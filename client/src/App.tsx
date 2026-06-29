@@ -29,7 +29,11 @@ const getPersistentUserId = (): string => {
   let userId = localStorage.getItem(STORAGE_KEY);
   if (!userId) {
     userId = genUserId();
-    localStorage.setItem(STORAGE_KEY, userId);
+    try {
+      localStorage.setItem(STORAGE_KEY, userId);
+    } catch (e) {
+      console.warn('Could not save user ID to localStorage:', e);
+    }
   }
   return userId;
 };
@@ -219,7 +223,11 @@ export default function App() {
   };
 
   const saveUserName = (name: string) => {
-    localStorage.setItem('syncpad_user_name', name);
+    try {
+      localStorage.setItem('syncpad_user_name', name);
+    } catch (e) {
+      console.warn('Could not save user name to localStorage:', e);
+    }
     setUserName(name);
   };
 
