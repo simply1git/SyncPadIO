@@ -44,7 +44,7 @@ export const useRoomLifecycle = ({
       }
       const { error } = await supabase.from('rooms').delete().eq('id', roomId);
       if (!error) {
-        console.log(`[Room] Successfully deleted room: ${roomId}`);
+        if (import.meta.env.DEV) console.log(`[Room] Successfully deleted room: ${roomId}`);
         onRoomDeletedRef.current?.();
       }
     } catch (err) {
@@ -68,7 +68,7 @@ export const useRoomLifecycle = ({
         .update({ last_activity: now, status: 'active' }).eq('id', roomId);
 
       hasInitializedRef.current = true;
-      console.log(`[Room] Room ${roomId} initialized`);
+      if (import.meta.env.DEV) console.log(`[Room] Room ${roomId} initialized`);
     } catch (err) {
       console.error('[Room] Failed to initialize:', err);
     }
@@ -81,7 +81,7 @@ export const useRoomLifecycle = ({
       await supabase.from('rooms').update({ last_activity: Date.now() }).eq('id', roomId);
       if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
       activityTimerRef.current = setTimeout(() => {
-        console.log(`[Room] Inactivity timeout — deleting room: ${roomId}`);
+        if (import.meta.env.DEV) console.log(`[Room] Inactivity timeout — deleting room: ${roomId}`);
         deleteRoom();
       }, inactivityTimeoutMs);
     } catch (err) {
@@ -102,7 +102,7 @@ export const useRoomLifecycle = ({
       .on('postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
         () => {
-          console.log(`[Room] Room ${roomId} deleted externally`);
+          if (import.meta.env.DEV) console.log(`[Room] Room ${roomId} deleted externally`);
           onRoomDeletedRef.current?.();
         }
       )

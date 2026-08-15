@@ -38,7 +38,9 @@ const pingService = async (url: string, serviceName: string): Promise<boolean> =
     if (response && response.ok) {
       lastPingTimes[serviceName.toLowerCase()] = Date.now();
       
-      console.log(`✅ ${serviceName} pinged successfully (${response.status})`);
+      if (import.meta.env.DEV) {
+        console.log(`✅ ${serviceName} pinged successfully (${response.status})`);
+      }
       return true;
     } else {
       console.warn(`⚠️  ${serviceName} ping failed with status ${response?.status}`);
@@ -62,7 +64,7 @@ const pingSupabase = async (): Promise<boolean> => {
     }
     
     lastPingTimes['supabase'] = Date.now();
-    console.log(`✅ Supabase pinged successfully`);
+    if (import.meta.env.DEV) console.log(`✅ Supabase pinged successfully`);
     return true;
   } catch (err) {
     console.warn(`⚠️  Error pinging Supabase:`, err);
@@ -86,14 +88,16 @@ const pingRender = async (): Promise<boolean> => {
  * Run all keep-alive checks
  */
 const runKeepAliveChecks = async (): Promise<void> => {
-  console.log(`⏰ [${new Date().toLocaleTimeString()}] Running keep-alive checks...`);
+  if (import.meta.env.DEV) console.log(`⏰ [${new Date().toLocaleTimeString()}] Running keep-alive checks...`);
   
   const [supabaseResult, renderResult] = await Promise.all([
     pingSupabase(),
     pingRender()
   ]);
 
-  console.log(`📊 Keep-alive status - Supabase: ${supabaseResult ? '✅' : '❌'}, Render: ${renderResult ? '✅' : '❌'}`);
+  if (import.meta.env.DEV) {
+    console.log(`📊 Keep-alive status - Supabase: ${supabaseResult ? '✅' : '❌'}, Render: ${renderResult ? '✅' : '❌'}`);
+  }
 };
 
 /**
@@ -101,9 +105,11 @@ const runKeepAliveChecks = async (): Promise<void> => {
  * Pings services every 5 minutes
  */
 export const startKeepAliveService = (): (() => void) => {
-  console.log('🔄 Keep-Alive Service Started');
-  console.log(`📍 Supabase: ${SUPABASE_URL}`);
-  if (RENDER_URL) console.log(`📍 Render: ${RENDER_URL}`);
+  if (import.meta.env.DEV) {
+    console.log('🔄 Keep-Alive Service Started');
+    console.log(`📍 Supabase: ${SUPABASE_URL}`);
+    if (RENDER_URL) console.log(`📍 Render: ${RENDER_URL}`);
+  }
 
   // Run immediately on first load
   setTimeout(() => runKeepAliveChecks(), 2000);
@@ -118,7 +124,7 @@ export const startKeepAliveService = (): (() => void) => {
   // Return cleanup function
   return () => {
     clearInterval(intervalId);
-    console.log('🔄 Keep-Alive Service Stopped');
+    if (import.meta.env.DEV) console.log('🔄 Keep-Alive Service Stopped');
   };
 };
 
@@ -126,7 +132,7 @@ export const startKeepAliveService = (): (() => void) => {
  * Manual trigger for keep-alive check
  */
 export const triggerKeepAlive = async (): Promise<void> => {
-  console.log('🔄 Manual keep-alive trigger');
+  if (import.meta.env.DEV) console.log('🔄 Manual keep-alive trigger');
   await runKeepAliveChecks();
 };
 
