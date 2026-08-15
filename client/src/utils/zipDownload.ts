@@ -41,9 +41,9 @@ export const downloadFilesAsZip = async (
         zip.file(fileName, blob);
         completed++;
         onProgress?.(completed, files.length);
-      } catch (error) {
-        if (error instanceof Error && error.message === 'Download cancelled') {
-          throw error;
+      } catch (error: any) {
+        if ((error instanceof Error && error.message === 'Download cancelled') || error.name === 'AbortError') {
+          throw new Error('Download cancelled');
         }
         console.warn(`⚠️ Failed to download ${file.name}:`, error);
         // Continue with other files even if one fails
@@ -110,9 +110,9 @@ export const downloadFilesSequential = async (
       if (i < files.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Download cancelled') {
-        throw error;
+    } catch (error: any) {
+      if ((error instanceof Error && error.message === 'Download cancelled') || error.name === 'AbortError') {
+        throw new Error('Download cancelled');
       }
       console.warn(`⚠️ Failed to download ${file.name}:`, error);
       onProgress?.(i + 1, files.length, file.name);
