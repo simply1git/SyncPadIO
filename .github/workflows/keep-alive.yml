@@ -1,0 +1,20 @@
+name: Keep Alive
+
+on:
+  schedule:
+    # Run every 10 minutes to prevent Render (15 min) and Supabase (1 week) from sleeping
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend Health Check
+        run: curl -f https://syncpadio.onrender.com/health || echo "Render ping failed"
+        
+      - name: Ping Render Backend Keep-Alive (Pings Supabase)
+        run: curl -f https://syncpadio.onrender.com/keep-alive || echo "Render keep-alive endpoint failed"
+        
+      - name: Ping Frontend
+        run: curl -f https://syncpadio.vercel.app || echo "Frontend ping failed"
