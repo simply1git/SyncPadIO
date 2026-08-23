@@ -98,10 +98,45 @@ const pingService = (url: string, serviceName: string) => {
   });
 };
 
-// Ping Supabase to keep it active
-const pingSupabase = () => {
-  const healthCheckUrl = `${SUPABASE_URL}/rest/v1/health`;
-  return pingService(healthCheckUrl, 'Supabase');
+// Ping Supabase to keep it active and prevent auto-pause
+const pingSupabase = async () => {
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL) {
+    console.warn('⚠️  Supabase URL not configured');
+    return false;
+  }
+  
+  if (!anonKey) {
+    // Fallback to simple health ping if no key is provided
+    const healthCheckUrl = `${SUPABASE_URL}/rest/v1/health`;
+    return pingService(healthCheckUrl, 'Supabase (Unauthenticated)');
+  }
+
+  // To prevent Supabase Free Tier auto-pause, we must perform an actual database query
+  // An unauthenticated ping to /health is not considered database activity.
+  const queryUrl = `${SUPABASE_URL}/rest/v1/rooms?select=id&limit=1`;
+  
+  try {
+    const response = await fetch(queryUrl, {
+      method: 'GET',
+      headers: {
+        'apikey': anonKey,
+        'Authorization': `Bearer ${anonKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (response.ok) {
+      console.log(`✅ Supabase pinged successfully (Authenticated Database Query)`);
+      return true;
+    } else {
+      console.warn(`⚠️  Failed to ping Supabase: ${response.status} ${response.statusText}`);
+      return false;
+    }
+  } catch (error: any) {
+    console.warn(`⚠️  Failed to ping Supabase:`, error.message);
+    return false;
+  }
 };
 
 // Log keep-alive events
