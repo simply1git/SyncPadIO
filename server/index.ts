@@ -79,6 +79,14 @@ app.use(limiter);
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://fxjmaajktqehnaergnky.supabase.co';
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 
+// Keep-alive statistics
+const keepAliveStats = {
+  lastPingTime: 0,
+  successCount: 0,
+  failureCount: 0,
+  isPaused: false
+};
+
 // Function to ping a URL to keep it active
 const pingService = (url: string, serviceName: string) => {
   return new Promise<boolean>((resolve) => {
@@ -128,13 +136,17 @@ const pingSupabase = async () => {
 
     if (response.ok) {
       console.log(`✅ Supabase pinged successfully (Authenticated Database Query)`);
+      keepAliveStats.successCount++;
+      keepAliveStats.lastPingTime = Date.now();
       return true;
     } else {
       console.warn(`⚠️  Failed to ping Supabase: ${response.status} ${response.statusText}`);
+      keepAliveStats.failureCount++;
       return false;
     }
   } catch (error: any) {
     console.warn(`⚠️  Failed to ping Supabase:`, error.message);
+    keepAliveStats.failureCount++;
     return false;
   }
 };
@@ -144,10 +156,24 @@ console.log('🔄 Keep-Alive Service Initialized');
 console.log(`📍 Supabase URL: ${SUPABASE_URL}`);
 if (RENDER_URL) console.log(`📍 Render URL: ${RENDER_URL}`);
 
-// Schedule: Ping Supabase every 5 minutes to prevent pause
-cron.schedule('*/5 * * * *', async () => {
+// Schedule: Ping Supabase EVERY 2 MINUTES (was 5) to prevent pause
+cron.schedule('*/2 * * * *', async () => {
   console.log(`⏰ [${new Date().toLocaleTimeString()}] Running keep-alive check...`);
   await pingSupabase();
+});
+
+// Additional aggressive ping: Every minute during business hours (extra safety)
+cron.schedule('* * * * *', async () => {
+  // Only run during expected active hours (optional, adjust to your needs)
+  // Or run always for maximum safety
+  const now = new Date();
+  const lastPingMinutesAgo = (Date.now() - keepAliveStats.lastPingTime) / 1000 / 60;
+  
+  // If no ping in last 3 minutes, do an extra ping
+  if (lastPingMinutesAgo > 3) {
+    console.log(`⚠️  No ping in ${Math.floor(lastPingMinutesAgo)} minutes, running emergency ping...`);
+    await pingSupabase();
+  }
 });
 
 // Immediate first ping on startup
@@ -163,7 +189,8 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    keepAliveStats
   });
 });
 
