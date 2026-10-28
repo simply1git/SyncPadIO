@@ -9,7 +9,16 @@ begin;
   create publication supabase_realtime;
 commit;
 
--- 2. Create 'snippets' table
+-- 2. Create 'rooms' table first (snippets and files reference this)
+drop table if exists rooms cascade;
+create table rooms (
+  id text primary key,
+  created_at bigint not null,
+  last_activity bigint not null,
+  status text default 'active' -- 'active' or 'cleanup'
+);
+
+-- 3. Create 'snippets' table
 drop table if exists snippets cascade;
 create table snippets (
   id uuid default gen_random_uuid() primary key,
@@ -18,15 +27,6 @@ create table snippets (
   sender_id text not null,
   sender_name text,
   "timestamp" bigint not null
-);
-
--- 3. Create 'rooms' table (no user_count — handled by Supabase Presence)
-drop table if exists rooms cascade;
-create table rooms (
-  id text primary key,
-  created_at bigint not null,
-  last_activity bigint not null,
-  status text default 'active' -- 'active' or 'cleanup'
 );
 
 -- 4. Create 'files' table
@@ -43,20 +43,20 @@ create table files (
 );
 
 -- 5. Add tables to Realtime publication
+alter publication supabase_realtime add table rooms;
 alter publication supabase_realtime add table snippets;
 alter publication supabase_realtime add table files;
-alter publication supabase_realtime add table rooms;
 
 -- 6. Disable Row Level Security (open public sharing)
+alter table rooms disable row level security;
 alter table snippets disable row level security;
 alter table files disable row level security;
-alter table rooms disable row level security;
 
 -- 7. Indexes for performance
-create index if not exists idx_files_room_id on files(room_id);
-create index if not exists idx_snippets_room_id on snippets(room_id);
 create index if not exists idx_rooms_status on rooms(status);
 create index if not exists idx_rooms_last_activity on rooms(last_activity);
+create index if not exists idx_snippets_room_id on snippets(room_id);
+create index if not exists idx_files_room_id on files(room_id);
 
 -- 8. Storage bucket for file uploads
 insert into storage.buckets (id, name, public)

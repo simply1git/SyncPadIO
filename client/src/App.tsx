@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Toaster, toast } from 'react-hot-toast';
-import { supabase } from './supabaseClient';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, isEncrypted } from './utils/crypto';
@@ -80,6 +80,7 @@ export default function App() {
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
   const downloadAbortRef = useRef<AbortController | null>(null);
   const [myUserId] = useState(getPersistentUserId);
+  const pendingActionRef = useRef<(() => void) | null>(null);
 
   // ── Lifecycle hook ──────────────────────────────────────────────────────
   const onRoomDeleted = useCallback(() => {
@@ -122,6 +123,12 @@ export default function App() {
   const joinRoomRealtime = async (id: string, checkExists: boolean = false) => {
     const cleanId = id.trim().toUpperCase();
     if (!cleanId) return;
+
+    if (!isSupabaseConfigured) {
+      toast.error('Supabase is not configured. Please check your .env settings.');
+      return;
+    }
+
     setIsJoining(true);
 
     try {
@@ -131,9 +138,16 @@ export default function App() {
           .from('rooms')
           .select('id')
           .eq('id', cleanId)
-          .single();
+          .maybeSingle();
 
-        if (roomError || !roomData) {
+        if (roomError) {
+          console.error('Room lookup error:', roomError);
+          toast.error(`Database error: ${roomError.message || 'Could not verify room'}`);
+          setIsJoining(false);
+          return;
+        }
+
+        if (!roomData) {
           toast.error(`Room "${cleanId}" does not exist`);
           setIsJoining(false);
           return;
@@ -141,12 +155,19 @@ export default function App() {
       } else {
         // Creating a new room - ensure it exists in database
         const now = Date.now();
-        await supabase.from('rooms').upsert({
+        const { error: upsertError } = await supabase.from('rooms').upsert({
           id: cleanId,
           created_at: now,
           last_activity: now,
           status: 'active'
         }, { onConflict: 'id' });
+
+        if (upsertError) {
+          console.error('Room creation error:', upsertError);
+          toast.error(`Could not create room: ${upsertError.message || 'Database error'}`);
+          setIsJoining(false);
+          return;
+        }
       }
 
       setRoomId(cleanId);
@@ -239,6 +260,7 @@ export default function App() {
   // ── Create / Join ───────────────────────────────────────────────────────
   const createRoom = () => {
     if (!userName.trim()) {
+      pendingActionRef.current = () => joinRoomRealtime(genId());
       setShowNameModal(true);
       return;
     }
@@ -250,21 +272,32 @@ export default function App() {
       toast.error('Please enter a room code');
       return;
     }
+    const code = customRoomCode.toUpperCase();
     if (!userName.trim()) {
+      pendingActionRef.current = () => {
+        joinRoomRealtime(code);
+        setCustomRoomCode('');
+      };
       setShowNameModal(true);
       return;
     }
-    joinRoomRealtime(customRoomCode.toUpperCase());
+    joinRoomRealtime(code);
     setCustomRoomCode('');
   };
 
   const joinRoom = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!joinInput.trim()) {
+      toast.error('Please enter a room code');
+      return;
+    }
+    const code = joinInput.trim().toUpperCase();
     if (!userName.trim()) {
+      pendingActionRef.current = () => joinRoomRealtime(code, true);
       setShowNameModal(true);
       return;
     }
-    joinRoomRealtime(joinInput, true);
+    joinRoomRealtime(code, true);
   };
 
   const leaveRoom = async () => {
@@ -277,11 +310,22 @@ export default function App() {
   };
 
   const handleSetUserName = (name: string) => {
-    if (!name.trim()) {
+    const trimmed = name.trim();
+    if (!trimmed) {
       toast.error('Name cannot be empty');
       return;
     }
-    saveUserName(name);
+    saveUserName(trimmed);
+    setShowNameModal(false);
+    if (pendingActionRef.current) {
+      const action = pendingActionRef.current;
+      pendingActionRef.current = null;
+      action();
+    }
+  };
+
+  const handleCloseNameModal = () => {
+    pendingActionRef.current = null;
     setShowNameModal(false);
   };
 
@@ -913,7 +957,7 @@ export default function App() {
         <div
           className="fixed inset-0 flex items-center justify-center p-4 z-50"
           style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-          onClick={() => setShowNameModal(false)}
+          onClick={handleCloseNameModal}
         >
           <div
             className="rounded-xl p-6 w-full"
@@ -941,7 +985,7 @@ export default function App() {
             />
             <div className="flex gap-2">
               <button
-                onClick={() => setShowNameModal(false)}
+                onClick={handleCloseNameModal}
                 className="btn-ghost flex-1 py-2 text-sm"
               >
                 Cancel
@@ -950,7 +994,7 @@ export default function App() {
                 onClick={() => handleSetUserName(userName)}
                 className="btn-accent flex-1 py-2 text-sm font-semibold"
               >
-                Save
+                Save & Continue
               </button>
             </div>
           </div>

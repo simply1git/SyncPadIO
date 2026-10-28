@@ -11,17 +11,23 @@ if (supabaseUrl.endsWith('/rest/v1')) {
 
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// Check if credentials are properly configured (not empty and not placeholders)
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  !supabaseUrl.includes('your-project') &&
+  !supabaseAnonKey.includes('your-anon-key')
+);
+
 // Validate credentials
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('❌ Missing Supabase credentials!');
-  console.error('Make sure these environment variables are set:');
-  console.error('  - VITE_SUPABASE_URL:', supabaseUrl ? '✓ Set' : '✗ Missing');
-  console.error('  - VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✓ Set' : '✗ Missing');
+if (!isSupabaseConfigured) {
+  console.error('❌ Missing or placeholder Supabase credentials!');
+  console.error('Make sure these environment variables are set to valid values:');
+  console.error('  - VITE_SUPABASE_URL:', supabaseUrl ? (supabaseUrl.includes('your-project') ? '⚠️ Placeholder' : '✓ Set') : '✗ Missing');
+  console.error('  - VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? (supabaseAnonKey.includes('your-anon-key') ? '⚠️ Placeholder' : '✓ Set') : '✗ Missing');
   
   if (import.meta.env.DEV) {
-    console.warn('📝 For local development, create a .env.local file in the client directory with:');
-    console.warn('VITE_SUPABASE_URL=https://your-project.supabase.co');
-    console.warn('VITE_SUPABASE_ANON_KEY=your-anon-key-here');
+    console.warn('📝 For local development, create a .env file in the client directory with valid Supabase credentials.');
   }
 }
 
@@ -32,7 +38,7 @@ const dummyStorage = {
   removeItem: () => {}
 };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey || 'placeholder', {
   auth: { 
     persistSession: false,
     storage: dummyStorage
@@ -41,6 +47,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 // Export raw config for XHR-based uploads (progress tracking)
 export { supabaseUrl, supabaseAnonKey };
-
-// Export a boolean indicating if credentials are properly configured
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
