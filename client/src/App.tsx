@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Toaster, toast } from 'react-hot-toast';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase } from './supabaseClient';
 import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, isEncrypted } from './utils/crypto';
@@ -22,6 +22,15 @@ interface UploadItem { id: string; name: string; progress: number; done: boolean
 
 const genId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const genUserId = () => Math.random().toString(36).slice(2, 10);
+
+const extractRoomCode = (input: string): string => {
+  const trimmed = input.trim();
+  if (trimmed.includes('room=')) {
+    const match = trimmed.match(/[?&]room=([A-Za-z0-9]+)/);
+    if (match && match[1]) return match[1].toUpperCase().slice(0, 12);
+  }
+  return trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+};
 
 // Get or create persistent user ID
 const getPersistentUserId = (): string => {
@@ -110,7 +119,16 @@ export default function App() {
   // ── URL param: auto-join if ?room=XXX ───────────────────────────────────
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get('room');
-    if (param) { setJoinInput(param.toUpperCase()); joinRoomRealtime(param.toUpperCase()); }
+    if (param) {
+      const clean = extractRoomCode(param);
+      if (clean) {
+        setJoinInput(clean);
+        if (!getPersistentUserName()) {
+          saveUserName('Guest-' + Math.random().toString(36).slice(2, 6).toUpperCase());
+        }
+        joinRoomRealtime(clean);
+      }
+    }
   }, []); // eslint-disable-line
 
   // ── Keep-Alive Service ──────────────────────────────────────────────────
@@ -120,41 +138,30 @@ export default function App() {
   }, []); // eslint-disable-line
 
   // ── joinRoomRealtime ────────────────────────────────────────────────────
-  const joinRoomRealtime = async (id: string, checkExists: boolean = false) => {
-    const cleanId = id.trim().toUpperCase();
-    if (!cleanId) return;
-
-    if (!isSupabaseConfigured) {
-      toast.error('Supabase is not configured. Please check your .env settings.');
+  const joinRoomRealtime = async (id: string) => {
+    const cleanId = extractRoomCode(id);
+    if (!cleanId) {
+      toast.error('Invalid room code');
       return;
     }
 
     setIsJoining(true);
 
     try {
-      // If checkExists is true, verify the room exists
-      if (checkExists) {
-        const { data: roomData, error: roomError } = await supabase
-          .from('rooms')
-          .select('id')
-          .eq('id', cleanId)
-          .maybeSingle();
+      const now = Date.now();
+      
+      // Ensure room exists in database; if not, create it seamlessly
+      const { data: existingRoom, error: fetchErr } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('id', cleanId)
+        .maybeSingle();
 
-        if (roomError) {
-          console.error('Room lookup error:', roomError);
-          toast.error(`Database error: ${roomError.message || 'Could not verify room'}`);
-          setIsJoining(false);
-          return;
-        }
+      if (fetchErr) {
+        console.warn('Room check notice:', fetchErr);
+      }
 
-        if (!roomData) {
-          toast.error(`Room "${cleanId}" does not exist`);
-          setIsJoining(false);
-          return;
-        }
-      } else {
-        // Creating a new room - ensure it exists in database
-        const now = Date.now();
+      if (!existingRoom) {
         const { error: upsertError } = await supabase.from('rooms').upsert({
           id: cleanId,
           created_at: now,
@@ -164,10 +171,13 @@ export default function App() {
 
         if (upsertError) {
           console.error('Room creation error:', upsertError);
-          toast.error(`Could not create room: ${upsertError.message || 'Database error'}`);
+          toast.error(`Could not enter room: ${upsertError.message || 'Database error'}`);
           setIsJoining(false);
           return;
         }
+      } else {
+        // Refresh last activity for existing room
+        await supabase.from('rooms').update({ last_activity: now, status: 'active' }).eq('id', cleanId);
       }
 
       setRoomId(cleanId);
@@ -206,7 +216,8 @@ export default function App() {
         const state = ch.presenceState();
         const count = Object.values(state).reduce((a, v) => a + v.length, 0);
         if (count === 0) {
-          cleanupTimerRef.current = setTimeout(() => deleteRoom(), 30_000);
+          // 10-minute grace period before cleaning up deserted room
+          cleanupTimerRef.current = setTimeout(() => deleteRoom(), 10 * 60 * 1000);
         }
       })
       .subscribe(async (status) => {
@@ -260,44 +271,35 @@ export default function App() {
   // ── Create / Join ───────────────────────────────────────────────────────
   const createRoom = () => {
     if (!userName.trim()) {
-      pendingActionRef.current = () => joinRoomRealtime(genId());
-      setShowNameModal(true);
-      return;
+      saveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
     joinRoomRealtime(genId());
   };
 
   const createRoomWithCustomCode = () => {
-    if (!customRoomCode.trim()) {
+    const clean = extractRoomCode(customRoomCode);
+    if (!clean) {
       toast.error('Please enter a room code');
       return;
     }
-    const code = customRoomCode.toUpperCase();
     if (!userName.trim()) {
-      pendingActionRef.current = () => {
-        joinRoomRealtime(code);
-        setCustomRoomCode('');
-      };
-      setShowNameModal(true);
-      return;
+      saveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
-    joinRoomRealtime(code);
+    joinRoomRealtime(clean);
     setCustomRoomCode('');
   };
 
   const joinRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinInput.trim()) {
+    const clean = extractRoomCode(joinInput);
+    if (!clean) {
       toast.error('Please enter a room code');
       return;
     }
-    const code = joinInput.trim().toUpperCase();
     if (!userName.trim()) {
-      pendingActionRef.current = () => joinRoomRealtime(code, true);
-      setShowNameModal(true);
-      return;
+      saveUserName('Guest-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
-    joinRoomRealtime(code, true);
+    joinRoomRealtime(clean);
   };
 
   const leaveRoom = async () => {
@@ -595,8 +597,8 @@ export default function App() {
                 className="input-dark flex-1 px-3 py-2 font-mono text-sm uppercase tracking-widest"
                 placeholder="MYCODE"
                 value={customRoomCode}
-                onChange={e => setCustomRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-                maxLength={8}
+                onChange={e => setCustomRoomCode(extractRoomCode(e.target.value))}
+                maxLength={12}
                 autoFocus
               />
               <button type="submit" disabled={!customRoomCode || isJoining} className="btn-accent px-3 py-2">
@@ -620,8 +622,8 @@ export default function App() {
             className="input-dark flex-1 px-4 py-3 font-mono text-lg uppercase tracking-widest"
             placeholder="ROOM CODE"
             value={joinInput}
-            onChange={e => setJoinInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-            maxLength={8}
+            onChange={e => setJoinInput(extractRoomCode(e.target.value))}
+            maxLength={12}
           />
           <button type="submit" disabled={!joinInput || isJoining} className="btn-accent px-4 py-3">
             <ArrowRight size={20} />
