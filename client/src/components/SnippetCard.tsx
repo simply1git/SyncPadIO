@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Copy, Check, Lock, Unlock, Trash2, Code2, Eye } from 'lucide-react';
+import { Copy, Check, Lock, Unlock, Trash2, Code2, Eye, Clock } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
@@ -82,6 +82,13 @@ export function SnippetCard({ snippet, myUserId, roomId, encryptionKey, onDelete
               <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded"
                 style={{ background: 'var(--surface-2)', color: 'var(--accent)', border: '1px solid var(--border)' }}>
                 {detectedLang}
+              </span>
+            )}
+            {snippet.sync_status === 'pending' && (
+              <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)' }}
+                title="Draft saved locally — will sync when online">
+                <Clock size={10} /> Pending Sync
               </span>
             )}
           </div>

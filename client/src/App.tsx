@@ -7,6 +7,18 @@ import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, generateRoomKey, getRoomKeyFromHash, setRoomKeyToHash } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
 import { extractRoomCode, generateRoomId, generateUserId } from './utils/helpers';
+import {
+  saveRoomOffline,
+  getCachedRoom,
+  saveSnippetsOffline,
+  getCachedSnippets,
+  savePendingSnippetOffline,
+  getPendingSnippets,
+  resolvePendingSnippet,
+  saveFilesOffline,
+  getCachedFiles,
+  clearRoomOffline,
+} from './utils/offlineStore';
 import { HomeScreen } from './components/HomeScreen';
 import { RoomHeader } from './components/RoomHeader';
 import { SnippetFeed } from './components/SnippetFeed';
@@ -37,6 +49,7 @@ export default function App() {
   const [connStatus, setConnStatus] = useState<ConnectionStatusType>('connecting');
   const [userCount, setUserCount] = useState(1);
   const [activeTab, setActiveTab] = useState<'text' | 'files'>('text');
+  const [, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // ── Content State ───────────────────────────────────────────────────────
   const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -54,6 +67,7 @@ export default function App() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
+  const isSyncingRef = useRef(false);
   const [myUserId] = useState(getPersistentUserId);
 
   // ── Dark/Light Mode Theme Toggle ────────────────────────────────────────
@@ -70,18 +84,86 @@ export default function App() {
   // ── Room Lifecycle Hook ─────────────────────────────────────────────────
   const onRoomDeleted = useCallback(() => {
     toast.error('Session was closed or expired');
+    if (roomId) clearRoomOffline(roomId);
     setIsJoined(false);
     setRoomId('');
     setSnippets([]);
     setFiles([]);
     window.history.replaceState({}, '', window.location.pathname);
-  }, []);
+  }, [roomId]);
 
   const { updateLastActivity, deleteRoom } = useRoomLifecycle({
     roomId,
     userId: myUserId,
     onRoomDeleted,
   });
+
+  // ── Flush Pending Offline Snippets ──────────────────────────────────────
+  const flushPendingOfflineSnippets = useCallback(async (targetRoomId: string) => {
+    if (isSyncingRef.current || !targetRoomId || !navigator.onLine) return;
+    isSyncingRef.current = true;
+
+    try {
+      const pending = await getPendingSnippets(targetRoomId);
+      if (pending.length === 0) return;
+
+      let syncedCount = 0;
+      for (const item of pending) {
+        const { data, error } = await supabase.from('snippets')
+          .insert({
+            room_id: targetRoomId,
+            text: item.text,
+            sender_id: item.sender_id,
+            timestamp: item.timestamp,
+            sender_name: item.sender_name || 'Anonymous',
+          })
+          .select().single();
+
+        if (!error && data) {
+          await resolvePendingSnippet(item.id, data as Snippet);
+          setSnippets(prev => prev.map(s => s.id === item.id ? { ...(data as Snippet), sync_status: 'synced' } : s));
+          syncedCount++;
+        }
+      }
+
+      if (syncedCount > 0) {
+        toast.success(`Synced ${syncedCount} offline message${syncedCount > 1 ? 's' : ''}!`);
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('[Sync] Flush error:', err);
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, []);
+
+  // ── Network Connectivity Listeners ──────────────────────────────────────
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setConnStatus('connecting');
+      toast.success('Connection restored');
+      if (roomId) {
+        flushPendingOfflineSnippets(roomId);
+        if (channelRef.current) {
+          channelRef.current.subscribe();
+        }
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setConnStatus('offline');
+      toast('Offline mode — edits are saved locally', { icon: '📡' });
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [roomId, flushPendingOfflineSnippets]);
 
   // ── Save User Display Name ──────────────────────────────────────────────
   const handleSaveUserName = (name: string) => {
@@ -92,7 +174,7 @@ export default function App() {
     setShowNameModal(false);
   };
 
-  // ── Join Room Realtime ──────────────────────────────────────────────────
+  // ── Join Room Realtime with Local-First IndexedDB Hydration ─────────────
   const joinRoomRealtime = useCallback(async (id: string, customKey?: string) => {
     const cleanId = extractRoomCode(id);
     if (!cleanId) {
@@ -101,16 +183,46 @@ export default function App() {
     }
 
     setIsJoining(true);
-    const resolvedKey = customKey || getRoomKeyFromHash() || undefined;
+
+    // 1. Resolve encryption key (from param, URL hash, or cached offline metadata)
+    let resolvedKey = customKey || getRoomKeyFromHash() || undefined;
+    if (!resolvedKey) {
+      const cached = await getCachedRoom(cleanId);
+      if (cached?.encryptionKey) resolvedKey = cached.encryptionKey;
+    }
+
     if (resolvedKey) {
       setEncryptionKey(resolvedKey);
       setRoomKeyToHash(resolvedKey);
     }
 
+    // Save room record offline for zero-latency load next time
+    await saveRoomOffline(cleanId, resolvedKey);
+
+    // 2. Local-First Hydration: Immediately load cached snippets & files from IndexedDB
+    const [cachedSnips, cachedFls] = await Promise.all([
+      getCachedSnippets(cleanId),
+      getCachedFiles(cleanId)
+    ]);
+    if (cachedSnips.length) setSnippets(cachedSnips);
+    if (cachedFls.length) setFiles(cachedFls);
+
+    setRoomId(cleanId);
+    const urlPath = `?room=${cleanId}${resolvedKey ? `#k=${resolvedKey}` : ''}`;
+    window.history.replaceState({}, '', urlPath);
+
+    // 3. If offline, stay in local workspace without throwing network errors
+    if (!navigator.onLine) {
+      setConnStatus('offline');
+      setIsJoined(true);
+      setIsJoining(false);
+      return;
+    }
+
+    // 4. Online flow: check room in Supabase & subscribe
     try {
       const now = Date.now();
 
-      // Check if room exists; if not, initialize seamlessly
       const { data: existingRoom, error: fetchErr } = await supabase
         .from('rooms')
         .select('id')
@@ -131,6 +243,12 @@ export default function App() {
 
         if (upsertError) {
           console.error('Room creation error:', upsertError);
+          // If network failed mid-flight, fall back to offline mode
+          if (!navigator.onLine) {
+            setConnStatus('offline');
+            setIsJoined(true);
+            return;
+          }
           toast.error(`Could not enter room: ${upsertError.message || 'Database error'}`);
           setIsJoining(false);
           return;
@@ -139,34 +257,70 @@ export default function App() {
         await supabase.from('rooms').update({ last_activity: now, status: 'active' }).eq('id', cleanId);
       }
 
-      setRoomId(cleanId);
-      const urlPath = `?room=${cleanId}${resolvedKey ? `#k=${resolvedKey}` : ''}`;
-      window.history.replaceState({}, '', urlPath);
-
       if (channelRef.current) await supabase.removeChannel(channelRef.current);
 
-      // Fetch initial content
+      // Fetch latest records from Supabase and update local IndexedDB cache
       const [snippetRes, fileRes] = await Promise.all([
         supabase.from('snippets').select('*').eq('room_id', cleanId).order('timestamp'),
         supabase.from('files').select('*').eq('room_id', cleanId).order('timestamp'),
       ]);
-      if (snippetRes.data) setSnippets(snippetRes.data as Snippet[]);
-      if (fileRes.data) setFiles(fileRes.data as FileData[]);
+
+      if (snippetRes.data) {
+        const freshSnippets = snippetRes.data as Snippet[];
+        setSnippets(freshSnippets);
+        await saveSnippetsOffline(cleanId, freshSnippets);
+      }
+      if (fileRes.data) {
+        const freshFiles = fileRes.data as FileData[];
+        setFiles(freshFiles);
+        await saveFilesOffline(cleanId, freshFiles);
+      }
+
+      // Check and flush any pending offline drafts
+      flushPendingOfflineSnippets(cleanId);
 
       // Subscribe to Realtime channel
       const ch = supabase.channel(`room:${cleanId}`);
 
       ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
-        (p) => setSnippets(prev => prev.find(s => s.id === p.new.id) ? prev : [...prev, p.new as Snippet])
+        (p) => {
+          const newSnip = p.new as Snippet;
+          setSnippets(prev => {
+            if (prev.find(s => s.id === newSnip.id)) return prev;
+            const updated = [...prev, newSnip];
+            saveSnippetsOffline(cleanId, updated);
+            return updated;
+          });
+        }
       )
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
-        (p) => setSnippets(prev => prev.filter(s => s.id !== p.old.id))
+        (p) => {
+          setSnippets(prev => {
+            const updated = prev.filter(s => s.id !== p.old.id);
+            saveSnippetsOffline(cleanId, updated);
+            return updated;
+          });
+        }
       )
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
-        (p) => setFiles(prev => prev.find(f => f.id === p.new.id) ? prev : [...prev, p.new as FileData])
+        (p) => {
+          const newFile = p.new as FileData;
+          setFiles(prev => {
+            if (prev.find(f => f.id === newFile.id)) return prev;
+            const updated = [...prev, newFile];
+            saveFilesOffline(cleanId, updated);
+            return updated;
+          });
+        }
       )
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
-        (p) => setFiles(prev => prev.filter(f => f.id !== p.old.id))
+        (p) => {
+          setFiles(prev => {
+            const updated = prev.filter(f => f.id !== p.old.id);
+            saveFilesOffline(cleanId, updated);
+            return updated;
+          });
+        }
       )
       .on('presence', { event: 'sync' }, () => {
         const state = ch.presenceState();
@@ -178,7 +332,6 @@ export default function App() {
         const state = ch.presenceState();
         const count = Object.values(state).reduce((a, v) => a + v.length, 0);
         if (count === 0) {
-          // Grace period before cleaning deserted room
           cleanupTimerRef.current = setTimeout(() => deleteRoom(), 10 * 60 * 1000);
         }
       })
@@ -195,14 +348,21 @@ export default function App() {
       setConnStatus('connecting');
       setIsJoined(true);
 
-      // Notification permission request
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         Notification.requestPermission();
+      }
+    } catch (err) {
+      // Graceful offline fallback on network failure
+      if (!navigator.onLine) {
+        setConnStatus('offline');
+        setIsJoined(true);
+      } else {
+        toast.error('Network error entering session');
       }
     } finally {
       setIsJoining(false);
     }
-  }, [myUserId, deleteRoom]);
+  }, [myUserId, deleteRoom, flushPendingOfflineSnippets]);
 
   // ── URL Parameter Auto-Join ─────────────────────────────────────────────
   useEffect(() => {
@@ -243,6 +403,7 @@ export default function App() {
       await supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
+    if (roomId) clearRoomOffline(roomId);
     setIsJoined(false);
     setRoomId('');
     setEncryptionKey(undefined);
@@ -250,56 +411,96 @@ export default function App() {
     setFiles([]);
     setConnStatus('connecting');
     window.history.replaceState({}, '', window.location.pathname);
-    toast('Left room', { icon: '👋' });
+    toast('Left session', { icon: '👋' });
   };
 
-  // ── Snippet Actions ─────────────────────────────────────────────────────
+  // ── Snippet Actions (With Offline-First Outbox Queuing) ──────────────────
   const handleAddSnippet = async (text: string, encrypt: boolean) => {
     if (!text.trim() || !isJoined) return;
     const raw = text.trim();
     const now = Date.now();
     const body = encrypt ? await encryptText(raw, roomId, encryptionKey) : raw;
-    const optimistic: Snippet = {
-      id: `opt-${now}`,
-      text: body,
-      sender_id: myUserId,
-      timestamp: now,
-      sender_name: userName || 'Anonymous'
-    };
 
-    setSnippets(prev => [...prev, optimistic]);
-    const { data, error } = await supabase.from('snippets')
-      .insert({
+    // 1. If currently offline or disconnected, queue locally in IndexedDB
+    if (!navigator.onLine || connStatus === 'offline') {
+      const offlineSnippet: Snippet = {
+        id: `offline-${now}`,
         room_id: roomId,
         text: body,
         sender_id: myUserId,
         timestamp: now,
-        sender_name: userName || 'Anonymous'
-      })
-      .select().single();
+        sender_name: userName || 'Anonymous',
+        sync_status: 'pending',
+      };
 
-    if (error) {
-      console.error('Snippet send error:', error);
-      toast.error(`Failed to send: ${error.message || 'Unknown error'}`);
-      setSnippets(prev => prev.filter(s => s.id !== optimistic.id));
-      throw error;
-    } else if (data) {
-      setSnippets(prev => prev.map(s => s.id === optimistic.id ? data as Snippet : s));
-      if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification('SyncPadIO', { body: 'New snippet received', icon: '/icon.svg' });
-      }
+      await savePendingSnippetOffline(offlineSnippet);
+      setSnippets(prev => [...prev, offlineSnippet]);
+      toast('Draft saved offline — will sync when online', { icon: '📝' });
+      return;
     }
+
+    // 2. Online flow: optimistic UI + write to Supabase
+    const optimistic: Snippet = {
+      id: `opt-${now}`,
+      room_id: roomId,
+      text: body,
+      sender_id: myUserId,
+      timestamp: now,
+      sender_name: userName || 'Anonymous',
+      sync_status: 'synced',
+    };
+
+    setSnippets(prev => [...prev, optimistic]);
+
+    try {
+      const { data, error } = await supabase.from('snippets')
+        .insert({
+          room_id: roomId,
+          text: body,
+          sender_id: myUserId,
+          timestamp: now,
+          sender_name: userName || 'Anonymous'
+        })
+        .select().single();
+
+      if (error) {
+        throw error;
+      } else if (data) {
+        const verified = data as Snippet;
+        setSnippets(prev => prev.map(s => s.id === optimistic.id ? verified : s));
+        saveSnippetsOffline(roomId, [...snippets.filter(s => s.id !== optimistic.id), verified]);
+
+        if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification('SyncPadIO', { body: 'New snippet received', icon: '/icon.svg' });
+        }
+      }
+    } catch (err: any) {
+      // Fallback: if network unexpectedly dropped mid-request, save as pending offline
+      console.warn('Network send failed, queuing offline:', err);
+      const pending: Snippet = { ...optimistic, sync_status: 'pending' };
+      await savePendingSnippetOffline(pending);
+      setSnippets(prev => prev.map(s => s.id === optimistic.id ? pending : s));
+      toast('Offline draft queued for sync', { icon: '📝' });
+    }
+
     updateLastActivity(true);
   };
 
   const handleDeleteSnippet = async (id: string) => {
     setSnippets(prev => prev.filter(s => s.id !== id));
-    await supabase.from('snippets').delete().eq('id', id);
+    if (navigator.onLine) {
+      await supabase.from('snippets').delete().eq('id', id);
+    }
     updateLastActivity(true);
   };
 
   // ── File Actions ────────────────────────────────────────────────────────
   const handleUploadFile = async (file: File) => {
+    if (!navigator.onLine) {
+      toast.error('File uploads require an active internet connection');
+      return;
+    }
+
     const uid = `${Date.now()}-${file.name}`;
     setUploads(prev => [...prev, { id: uid, name: file.name, progress: 0, done: false }]);
 
@@ -317,7 +518,11 @@ export default function App() {
       abortMapRef.current.delete(uid);
       setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: 100, done: true } : u));
       const fd = record as unknown as FileData;
-      setFiles(prev => prev.find(f => f.id === fd.id) ? prev : [...prev, fd]);
+      setFiles(prev => {
+        const updated = prev.find(f => f.id === fd.id) ? prev : [...prev, fd];
+        saveFilesOffline(roomId, updated);
+        return updated;
+      });
       toast.success(`${file.name} uploaded`);
       setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 2000);
     } catch (err: unknown) {
@@ -342,9 +547,14 @@ export default function App() {
   };
 
   const handleDeleteFile = async (id: string, url: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
+    setFiles(prev => {
+      const updated = prev.filter(f => f.id !== id);
+      saveFilesOffline(roomId, updated);
+      return updated;
+    });
+
     const path = url.split('/uploads/')[1];
-    if (path) {
+    if (path && navigator.onLine) {
       try { await deleteFileFromRoom(id, path); } catch { /* ignore */ }
     }
     updateLastActivity(true);

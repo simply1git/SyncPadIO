@@ -13,16 +13,46 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-stylesheets',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-webfonts',
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+        ],
       },
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'SyncPadIO',
         short_name: 'SyncPadIO',
-        description: 'Real-time text and file sharing for developers',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        description: 'Real-time, zero-knowledge ephemeral code and file sharing',
+        theme_color: '#0a0a0a',
+        background_color: '#0a0a0a',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'portrait-primary',
         icons: [
           {
             src: 'icon.svg',
@@ -35,7 +65,7 @@ export default defineConfig({
     })
   ],
   server: {
-    host: true, // Listen on all local IPs
+    host: true,
     port: 5173,
   },
   build: {

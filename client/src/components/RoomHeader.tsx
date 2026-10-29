@@ -1,4 +1,4 @@
-import { Share2, Users, LogOut, Sun, Moon, ShieldCheck } from 'lucide-react';
+import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatusType } from '../types';
 
@@ -50,7 +50,7 @@ export function RoomHeader({
             title={
               connStatus === 'connected' ? '🔵 Realtime connected — sync active' :
               connStatus === 'connecting' ? '🟡 Connecting to Realtime…' :
-              '🔴 Offline — changes saved locally'
+              '🔴 Offline mode — changes saved locally to IndexedDB'
             }
             aria-label={`Connection status: ${connStatus}`}
           />
@@ -83,6 +83,17 @@ export function RoomHeader({
         >
           {roomId}
         </button>
+
+        {/* Offline indicator badge */}
+        {connStatus === 'offline' && (
+          <span
+            className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded"
+            style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}
+            title="Offline — changes are queued locally and will sync when reconnected"
+          >
+            <WifiOff size={11} /> Offline Drafts
+          </span>
+        )}
 
         {/* E2EE indicator */}
         {hasEncryptionKey && (
@@ -132,4 +143,3 @@ export function RoomHeader({
     </header>
   );
 }
-

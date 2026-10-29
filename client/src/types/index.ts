@@ -9,6 +9,7 @@ export interface Snippet {
   sender_id: string;
   timestamp: number;
   sender_name?: string;
+  sync_status?: 'synced' | 'pending' | 'failed';
 }
 
 export interface FileData {
@@ -32,4 +33,3 @@ export interface UploadItem {
 }
 
 export type ConnectionStatusType = 'connecting' | 'connected' | 'offline';
-
