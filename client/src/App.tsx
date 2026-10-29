@@ -508,6 +508,7 @@ export default function App() {
       roomId,
       file,
       uploaderName: userName,
+      encryptionKey,
       onProgress: (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u))
     });
 
@@ -637,6 +638,7 @@ export default function App() {
                 files={files}
                 uploads={uploads}
                 roomId={roomId}
+                encryptionKey={encryptionKey}
                 onUploadFiles={handleUploadFiles}
                 onCancelUpload={handleCancelUpload}
                 onDeleteFile={handleDeleteFile}
@@ -659,6 +661,8 @@ export default function App() {
           {previewFile && (
             <PreviewModal
               file={previewFile}
+              roomId={roomId}
+              encryptionKey={encryptionKey}
               onClose={() => setPreviewFile(null)}
             />
           )}

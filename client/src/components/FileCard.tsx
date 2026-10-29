@@ -1,19 +1,30 @@
 import { useState, useRef } from 'react';
-import { Download, Trash2, Eye, CheckCircle2, Circle, X } from 'lucide-react';
+import { Download, Trash2, Eye, CheckCircle2, Circle, X, ShieldCheck } from 'lucide-react';
 import { downloadWithProgress } from '../utils/download';
 import { getFileType } from '../utils/fileIcons';
 import { formatFileSize } from '../utils/helpers';
+import { isFileEncrypted } from '../utils/crypto';
 import { FileData } from '../types';
 
 interface Props {
   file: FileData;
   selected?: boolean;
+  roomId?: string;
+  encryptionKey?: string;
   onSelect?: (id: string) => void;
   onDelete: (id: string, url: string) => void;
   onPreview: (file: FileData) => void;
 }
 
-export function FileCard({ file, selected = false, onSelect, onDelete, onPreview }: Props) {
+export function FileCard({
+  file,
+  selected = false,
+  roomId,
+  encryptionKey,
+  onSelect,
+  onDelete,
+  onPreview
+}: Props) {
   const [hover, setHover] = useState(false);
   const [dlProgress, setDlProgress] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -21,13 +32,21 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
   const canPreview = isImage || isVideo || file.name.toLowerCase().endsWith('.pdf');
   const timeStr = new Date(file.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isDownloading = dlProgress !== null && dlProgress < 100;
+  const encrypted = isFileEncrypted(file);
 
   const handleDownload = async () => {
     if (isDownloading) return;
     setDlProgress(0);
     abortControllerRef.current = new AbortController();
     try {
-      await downloadWithProgress(file.url, file.name, (pct) => setDlProgress(pct), abortControllerRef.current.signal);
+      await downloadWithProgress(
+        file.url,
+        file.name,
+        (pct) => setDlProgress(pct),
+        abortControllerRef.current.signal,
+        roomId,
+        encryptionKey
+      );
     } catch (err) {
       if (err instanceof Error && err.message === 'Download cancelled') {
         // Cancelled by user
@@ -76,6 +95,17 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
         </button>
       )}
 
+      {/* Encryption badge */}
+      {encrypted && (
+        <div
+          className="absolute top-2 right-2 z-10 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium backdrop-blur-md"
+          style={{ background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.3)' }}
+          title="End-to-End Encrypted (AES-256-GCM)"
+        >
+          <ShieldCheck size={11} /> E2EE
+        </div>
+      )}
+
       {/* Thumbnail / Icon */}
       <div
         className="relative flex items-center justify-center overflow-hidden"
@@ -86,7 +116,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
         aria-label={canPreview ? `Preview ${file.name}` : undefined}
         onKeyDown={(e) => { if (canPreview && e.key === 'Enter') onPreview(file); }}
       >
-        {isImage ? (
+        {isImage && !encrypted ? (
           <img
             src={file.url}
             alt={file.name}
@@ -97,7 +127,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
         ) : (
           <Icon size={36} style={{ color, opacity: 0.8 }} />
         )}
-        {canPreview && !isImage && hover && (
+        {canPreview && (!isImage || encrypted) && hover && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
             <Eye size={20} color="#fff" />
           </div>
@@ -110,7 +140,8 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
           {file.name}
         </p>
         <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-          {file.uploader_name ? `Uploaded by ${file.uploader_name} · ` : ''}{formatFileSize(file.size)} · {timeStr}
+          {file.uploader_name ? `Uploaded by ${file.uploader_name} · ` : ''}
+          {formatFileSize(file.size)} · {timeStr}
         </p>
 
         {/* Download progress bar */}

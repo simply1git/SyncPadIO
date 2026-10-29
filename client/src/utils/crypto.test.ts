@@ -7,7 +7,13 @@ import {
   bytesToBase64,
   base64ToBytes,
   generateShareUrl,
-  ENC_PREFIX_V2
+  ENC_PREFIX_V2,
+  encryptFile,
+  decryptFile,
+  safeDecryptFile,
+  deriveKey,
+  isFileEncrypted,
+  getMimeTypeFromName
 } from './crypto';
 
 describe('SyncPadIO Cryptography Engine V2', () => {
@@ -91,6 +97,100 @@ describe('SyncPadIO Cryptography Engine V2', () => {
     const shareUrl = generateShareUrl('MYROOM', 'abc123key');
     expect(shareUrl).toContain('?room=MYROOM');
     expect(shareUrl).toContain('#k=abc123key');
+  });
+
+  describe('Client-Side Hardware-Accelerated File Encryption', () => {
+    it('encrypts and decrypts a binary file with exact byte-for-byte fidelity', async () => {
+      const roomId = 'FILE_ROOM_1';
+      // Create sample binary data
+      const sampleBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x00, 0xff, 0x42, 0x13, 0x37]);
+      const blob = new Blob([sampleBytes], { type: 'application/octet-stream' });
+
+      const { encryptedBlob, originalSize, originalName } = await encryptFile(blob, 'sample.bin', roomId);
+
+      expect(originalSize).toBe(sampleBytes.byteLength);
+      expect(originalName).toBe('sample.bin');
+      // Encrypted payload is IV (12B) + ciphertext + tag (16B) = originalSize + 28B
+      expect(encryptedBlob.size).toBe(sampleBytes.byteLength + 28);
+
+      const encryptedBuf = await encryptedBlob.arrayBuffer();
+      const decryptedBlob = await decryptFile(encryptedBuf, roomId);
+      const decryptedBuf = await decryptedBlob.arrayBuffer();
+      const decryptedBytes = new Uint8Array(decryptedBuf);
+
+      expect(Array.from(decryptedBytes)).toEqual(Array.from(sampleBytes));
+    });
+
+    it('enforces Zero-Knowledge authentication tag (fails with wrong room key)', async () => {
+      const roomId = 'SECURE_FILES';
+      const secret = 'valid-room-key-1234';
+      const payload = new TextEncoder().encode('Confidential financial sheet');
+      const blob = new Blob([payload], { type: 'text/plain' });
+
+      const { encryptedBlob } = await encryptFile(blob, 'sheet.txt', roomId, secret);
+      const encBuf = await encryptedBlob.arrayBuffer();
+
+      // Decryption with wrong secret should throw
+      await expect(decryptFile(encBuf, roomId, 'wrong-room-key')).rejects.toThrow();
+
+      // Safe decrypt should fall back to raw buffer on failure
+      const fallbackBlob = await safeDecryptFile(encBuf, roomId, 'wrong-room-key');
+      expect(fallbackBlob.size).toBe(encBuf.byteLength);
+
+      // Decryption with correct secret succeeds perfectly
+      const validBlob = await decryptFile(encBuf, roomId, secret);
+      const text = await validBlob.text();
+      expect(text).toBe('Confidential financial sheet');
+    });
+
+    it('leverages in-memory CryptoKey cache for near-instantaneous subsequent derivations', async () => {
+      const roomId = 'CACHE_TEST';
+      const secret = 'speedy-key-2026';
+
+      // First derivation performs PBKDF2 (100,000 rounds)
+      const t0 = performance.now();
+      await deriveKey(roomId, secret);
+      const firstDuration = performance.now() - t0;
+
+      // Second derivation should hit cache in < 1ms
+      const t1 = performance.now();
+      await deriveKey(roomId, secret);
+      const cachedDuration = performance.now() - t1;
+
+      expect(cachedDuration).toBeLessThan(5);
+      expect(firstDuration).toBeGreaterThanOrEqual(0);
+    });
+
+    it('encrypts and decrypts 1MB binary file in milliseconds (fastest pipeline)', async () => {
+      const roomId = 'BENCH_ROOM';
+      const oneMbBuffer = new Uint8Array(1024 * 1024);
+      for (let i = 0; i < oneMbBuffer.length; i++) oneMbBuffer[i] = i % 256;
+      const fileBlob = new Blob([oneMbBuffer], { type: 'application/octet-stream' });
+
+      const tStart = performance.now();
+      const { encryptedBlob } = await encryptFile(fileBlob, 'large.bin', roomId);
+      const encBuf = await encryptedBlob.arrayBuffer();
+      const decryptedBlob = await decryptFile(encBuf, roomId);
+      const totalTimeMs = performance.now() - tStart;
+
+      expect(decryptedBlob.size).toBe(1024 * 1024);
+      // Native Web Crypto AES-GCM takes well under 250ms for 1MB
+      expect(totalTimeMs).toBeLessThan(500);
+    });
+
+    it('identifies encrypted files accurately', () => {
+      expect(isFileEncrypted({ name: 'regular.pdf', storage_path: 'ROOM/123_regular.pdf' })).toBe(false);
+      expect(isFileEncrypted({ name: 'regular.pdf', is_encrypted: true })).toBe(true);
+      expect(isFileEncrypted({ name: 'doc.txt', storage_path: 'ROOM/123_enc_doc.txt' })).toBe(true);
+      expect(isFileEncrypted({ name: 'photo_enc_v2.png' })).toBe(true);
+    });
+
+    it('maps file extensions to correct MIME types', () => {
+      expect(getMimeTypeFromName('test.png')).toBe('image/png');
+      expect(getMimeTypeFromName('movie.mp4')).toBe('video/mp4');
+      expect(getMimeTypeFromName('doc.pdf')).toBe('application/pdf');
+      expect(getMimeTypeFromName('unknown.xyz')).toBe('application/octet-stream');
+    });
   });
 });
 

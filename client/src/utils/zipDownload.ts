@@ -1,23 +1,29 @@
 /**
  * Zip Download Utility
  * Provides functionality to download multiple files as a zip archive
+ * with client-side zero-knowledge decryption.
  */
 
 import JSZip from 'jszip';
+import { safeDecryptFile, getMimeTypeFromName } from './crypto';
 
 export interface FileToDownload {
   name: string;
   url: string;
+  storage_path?: string;
+  is_encrypted?: boolean;
 }
 
 /**
- * Download multiple files as a zip archive
+ * Download multiple files as a zip archive with client-side decryption.
  */
 export const downloadFilesAsZip = async (
   files: FileToDownload[],
   zipName: string = 'SyncPadIO-files',
   onProgress?: (current: number, total: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  roomId?: string,
+  encryptionKey?: string
 ): Promise<void> => {
   if (files.length === 0) {
     throw new Error('No files to download');
@@ -27,26 +33,34 @@ export const downloadFilesAsZip = async (
   let completed = 0;
 
   try {
-    // Fetch all files in parallel
+    // Fetch and decrypt all files concurrently in parallel
     const filePromises = files.map(async (file) => {
       try {
         if (signal?.aborted) throw new Error('Download cancelled');
-        
+
         const response = await fetch(file.url, { signal });
         if (!response.ok) throw new Error(`Failed to fetch ${file.name}`);
-        
-        const blob = await response.blob();
+
+        const buf = await response.arrayBuffer();
+        const mimeType = getMimeTypeFromName(file.name);
+        const isEncrypted = Boolean(file.is_encrypted || file.url.includes('_enc_') || file.storage_path?.includes('_enc_'));
+
+        const blob = roomId || isEncrypted
+          ? await safeDecryptFile(buf, roomId || '', encryptionKey, mimeType)
+          : new Blob([buf], { type: mimeType });
+
         const fileName = file.name || `file-${Date.now()}`;
-        
         zip.file(fileName, blob);
         completed++;
         onProgress?.(completed, files.length);
-      } catch (error: any) {
-        if ((error instanceof Error && error.message === 'Download cancelled') || error.name === 'AbortError') {
+      } catch (error: unknown) {
+        if (
+          (error instanceof Error && error.message === 'Download cancelled') ||
+          (error && typeof error === 'object' && 'name' in error && (error as { name: string }).name === 'AbortError')
+        ) {
           throw new Error('Download cancelled');
         }
-        console.warn(`⚠️ Failed to download ${file.name}:`, error);
-        // Continue with other files even if one fails
+        if (import.meta.env.DEV) console.warn(`Failed to process ${file.name}:`, error);
         completed++;
         onProgress?.(completed, files.length);
       }
@@ -65,7 +79,7 @@ export const downloadFilesAsZip = async (
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 15_000);
   } catch (error) {
     throw new Error(`Failed to create zip: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -73,12 +87,13 @@ export const downloadFilesAsZip = async (
 
 /**
  * Download files sequentially with detailed progress
- * (Alternative to zip if user prefers individual downloads)
  */
 export const downloadFilesSequential = async (
   files: FileToDownload[],
   onProgress?: (completed: number, total: number, currentFile: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  roomId?: string,
+  encryptionKey?: string
 ): Promise<void> => {
   if (files.length === 0) {
     throw new Error('No files to download');
@@ -94,7 +109,14 @@ export const downloadFilesSequential = async (
       const response = await fetch(file.url, { signal });
       if (!response.ok) throw new Error(`Failed to fetch ${file.name}`);
 
-      const blob = await response.blob();
+      const buf = await response.arrayBuffer();
+      const mimeType = getMimeTypeFromName(file.name);
+      const isEncrypted = Boolean(file.is_encrypted || file.url.includes('_enc_') || file.storage_path?.includes('_enc_'));
+
+      const blob = roomId || isEncrypted
+        ? await safeDecryptFile(buf, roomId || '', encryptionKey, mimeType)
+        : new Blob([buf], { type: mimeType });
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -102,19 +124,21 @@ export const downloadFilesSequential = async (
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 15_000);
 
       onProgress?.(i + 1, files.length, file.name);
 
-      // Small delay between downloads to avoid overwhelming the browser
       if (i < files.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
-    } catch (error: any) {
-      if ((error instanceof Error && error.message === 'Download cancelled') || error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (
+        (error instanceof Error && error.message === 'Download cancelled') ||
+        (error && typeof error === 'object' && 'name' in error && (error as { name: string }).name === 'AbortError')
+      ) {
         throw new Error('Download cancelled');
       }
-      console.warn(`⚠️ Failed to download ${file.name}:`, error);
+      if (import.meta.env.DEV) console.warn(`Failed to download ${file.name}:`, error);
       onProgress?.(i + 1, files.length, file.name);
     }
   }
@@ -122,5 +146,5 @@ export const downloadFilesSequential = async (
 
 export default {
   downloadFilesAsZip,
-  downloadFilesSequential
+  downloadFilesSequential,
 };

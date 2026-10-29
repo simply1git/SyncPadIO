@@ -10,6 +10,7 @@ interface Props {
   files: FileData[];
   uploads: UploadItem[];
   roomId: string;
+  encryptionKey?: string;
   onUploadFiles: (files: FileList | null) => void;
   onCancelUpload: (id: string) => void;
   onDeleteFile: (id: string, url: string) => void;
@@ -21,6 +22,7 @@ export function FileManager({
   files,
   uploads,
   roomId,
+  encryptionKey,
   onUploadFiles,
   onCancelUpload,
   onDeleteFile,
@@ -79,10 +81,17 @@ export function FileManager({
 
     try {
       await downloadFilesAsZip(
-        filesToDownload.map(f => ({ name: f.name, url: f.url })),
+        filesToDownload.map(f => ({
+          name: f.name,
+          url: f.url,
+          storage_path: f.storage_path,
+          is_encrypted: f.is_encrypted
+        })),
         `SyncPadIO-${roomId}`,
         (current, total) => setDownloadProgress({ type: 'zip', current, total }),
-        downloadAbortRef.current.signal
+        downloadAbortRef.current.signal,
+        roomId,
+        encryptionKey
       );
       toast.success('Zip archive downloaded!');
       setSelectedFileIds(new Set());
@@ -103,9 +112,16 @@ export function FileManager({
 
     try {
       await downloadFilesSequential(
-        filesToDownload.map(f => ({ name: f.name, url: f.url })),
+        filesToDownload.map(f => ({
+          name: f.name,
+          url: f.url,
+          storage_path: f.storage_path,
+          is_encrypted: f.is_encrypted
+        })),
         (current, total) => setDownloadProgress({ type: 'individual', current, total }),
-        downloadAbortRef.current.signal
+        downloadAbortRef.current.signal,
+        roomId,
+        encryptionKey
       );
       toast.success('All files downloaded!');
       setSelectedFileIds(new Set());
@@ -269,6 +285,8 @@ export function FileManager({
                 <FileCard
                   key={f.id}
                   file={f}
+                  roomId={roomId}
+                  encryptionKey={encryptionKey}
                   selected={selectedFileIds.has(f.id)}
                   onSelect={toggleFileSelection}
                   onDelete={onDeleteFile}

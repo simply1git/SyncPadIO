@@ -21,6 +21,7 @@ export interface FileData {
   timestamp: number;
   storage_path: string;
   uploader_name?: string;
+  is_encrypted?: boolean;
 }
 
 export interface UploadItem {

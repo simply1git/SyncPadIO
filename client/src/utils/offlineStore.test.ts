@@ -100,3 +100,4 @@ describe('SyncPadIO Offline Storage Engine', () => {
     expect(snippets.length).toBe(0);
   });
 });
+
