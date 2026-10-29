@@ -1,4 +1,5 @@
 import { supabase, supabaseUrl, supabaseAnonKey } from '../supabaseClient';
+import { validateFile } from './helpers';
 
 interface UploadFileOptions {
   roomId: string;
@@ -12,9 +13,6 @@ interface UploadResult {
   abort: () => void;
 }
 
-const BLOCKED_EXTS = ['.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs'];
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-
 /**
  * Upload using XHR for real progress + cancellation support.
  * Returns { promise, abort } so callers can cancel mid-upload.
@@ -25,12 +23,10 @@ export const uploadFileToRoom = ({
   let xhr: XMLHttpRequest;
 
   const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
-    if (!file) return reject(new Error('No file provided'));
-    if (file.size > MAX_FILE_SIZE)
-      return reject(new Error('File exceeds 50 MB limit.'));
-    const ext = file.name.toLowerCase();
-    if (BLOCKED_EXTS.some(e => ext.endsWith(e)))
-      return reject(new Error('Executable files are not allowed.'));
+    const validation = validateFile(file);
+    if (!validation.valid) {
+      return reject(new Error(validation.error || 'Invalid file'));
+    }
 
     const timestamp = Date.now();
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
@@ -41,8 +37,9 @@ export const uploadFileToRoom = ({
     xhr = new XMLHttpRequest();
 
     xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable)
+      if (e.lengthComputable) {
         onProgress?.(Math.round(5 + (e.loaded / e.total) * 80));
+      }
     });
 
     xhr.addEventListener('load', async () => {
@@ -51,13 +48,22 @@ export const uploadFileToRoom = ({
         const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(storagePath);
         const { data: fileRecord, error: dbError } = await supabase
           .from('files')
-          .insert({ room_id: roomId, name: file.name, size: file.size, url: urlData.publicUrl, timestamp, storage_path: storagePath, uploader_name: uploaderName })
+          .insert({
+            room_id: roomId,
+            name: file.name,
+            size: file.size,
+            url: urlData.publicUrl,
+            timestamp,
+            storage_path: storagePath,
+            uploader_name: uploaderName
+          })
           .select().single();
+
         if (dbError) {
           await supabase.storage.from('uploads').remove([storagePath]);
           return reject(dbError);
         }
-        console.log(`[Upload] ${file.name} → ${storagePath}`);
+        if (import.meta.env.DEV) console.log(`[Upload] ${file.name} → ${storagePath}`);
         onProgress?.(100);
         resolve(fileRecord as Record<string, unknown>);
       } else {
@@ -90,7 +96,7 @@ export const deleteFileFromRoom = async (fileId: string, storagePath: string) =>
   if (storageErr) console.error('[Delete] Storage error:', storageErr);
   const { error: dbErr } = await supabase.from('files').delete().eq('id', fileId);
   if (dbErr) throw dbErr;
-  console.log(`[Delete] File deleted: ${storagePath}`);
+  if (import.meta.env.DEV) console.log(`[Delete] File deleted: ${storagePath}`);
 };
 
 /** Get all files for a room */

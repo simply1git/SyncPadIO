@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'client/package-lock.json'
+
+      - name: Install Client Dependencies
+        run: npm --prefix client ci
+
+      - name: Run ESLint
+        run: npm --prefix client run lint
+
+      - name: Run Vitest Unit Tests
+        run: npm --prefix client run test
+
+      - name: Build Production Bundle
+        run: npm --prefix client run build

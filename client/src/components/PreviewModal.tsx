@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { X, Download } from 'lucide-react';
 import { FileData } from './FileCard';
 import { useState } from 'react';
@@ -16,6 +17,14 @@ export function PreviewModal({ file, onClose }: Props) {
   const isPdf   = ext === 'pdf';
   const isDownloading = dlProgress !== null && dlProgress < 100;
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const handleDownload = async () => {
     if (isDownloading) return;
     setDlProgress(0);
@@ -26,7 +35,13 @@ export function PreviewModal({ file, onClose }: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Preview ${file.name}`}
+    >
       <div
         className="modal-box overflow-hidden flex flex-col"
         style={{ maxWidth: isImage || isVideo ? 900 : 640, width: '100%', maxHeight: '90vh' }}
@@ -39,6 +54,7 @@ export function PreviewModal({ file, onClose }: Props) {
             <button
               onClick={handleDownload}
               disabled={isDownloading}
+              aria-label="Download file"
               className="btn-ghost flex items-center gap-1.5 text-xs px-3 py-1.5 min-w-[100px] justify-center"
               style={{ color: isDownloading ? 'var(--accent)' : 'var(--text-muted)' }}
             >
@@ -48,11 +64,11 @@ export function PreviewModal({ file, onClose }: Props) {
                 : dlProgress === 100 ? 'Done ✓' : 'Download'
               }
             </button>
-            <button onClick={onClose} className="btn-ghost p-1.5"><X size={16} /></button>
+            <button onClick={onClose} aria-label="Close modal" className="btn-ghost p-1.5"><X size={16} /></button>
           </div>
         </div>
 
-        {/* Download progress bar (below header) */}
+        {/* Download progress bar */}
         {dlProgress !== null && (
           <div className="px-4 py-1.5" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
             <div className="progress-track" style={{ height: 3 }}>
@@ -79,7 +95,13 @@ export function PreviewModal({ file, onClose }: Props) {
             <video src={file.url} controls autoPlay style={{ maxWidth: '100%', maxHeight: '75vh', borderRadius: 8 }} />
           )}
           {isPdf && (
-            <iframe src={file.url} title={file.name} style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 8 }} />
+            <iframe
+              src={file.url}
+              title={file.name}
+              sandbox="allow-scripts allow-same-origin"
+              referrerPolicy="no-referrer"
+              style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 8 }}
+            />
           )}
           {!isImage && !isVideo && !isPdf && (
             <div className="text-center">

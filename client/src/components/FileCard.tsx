@@ -1,16 +1,9 @@
 import { useState, useRef } from 'react';
-import { Download, Trash2, Eye, Image, Video, FileText, File, Code, Music, Archive, CheckCircle2, Circle, X } from 'lucide-react';
+import { Download, Trash2, Eye, CheckCircle2, Circle, X } from 'lucide-react';
 import { downloadWithProgress } from '../utils/download';
-
-export interface FileData {
-  id: string;
-  name: string;
-  size: number;
-  url: string;
-  timestamp: number;
-  storage_path: string;
-  uploader_name?: string;
-}
+import { getFileType } from '../utils/fileIcons';
+import { formatFileSize } from '../utils/helpers';
+import { FileData } from '../types';
 
 interface Props {
   file: FileData;
@@ -20,32 +13,8 @@ interface Props {
   onPreview: (file: FileData) => void;
 }
 
-export function getFileType(name: string) {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['jpg','jpeg','png','gif','webp','svg','bmp','avif'].includes(ext))
-    return { Icon: Image, color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', isImage: true, isVideo: false };
-  if (['mp4','webm','mov','avi','mkv','m4v'].includes(ext))
-    return { Icon: Video, color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', isImage: false, isVideo: true };
-  if (['mp3','wav','ogg','aac','flac','m4a'].includes(ext))
-    return { Icon: Music, color: '#f472b6', bg: 'rgba(244,114,182,0.1)', isImage: false, isVideo: false };
-  if (['pdf'].includes(ext))
-    return { Icon: FileText, color: '#f87171', bg: 'rgba(248,113,113,0.1)', isImage: false, isVideo: false };
-  if (['zip','rar','7z','tar','gz'].includes(ext))
-    return { Icon: Archive, color: '#fbbf24', bg: 'rgba(251,191,36,0.1)', isImage: false, isVideo: false };
-  if (['js','ts','jsx','tsx','py','go','rs','java','c','cpp','html','css','json'].includes(ext))
-    return { Icon: Code, color: '#34d399', bg: 'rgba(52,211,153,0.1)', isImage: false, isVideo: false };
-  return { Icon: File, color: '#9ca3af', bg: 'rgba(156,163,175,0.1)', isImage: false, isVideo: false };
-}
-
-export function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export function FileCard({ file, selected = false, onSelect, onDelete, onPreview }: Props) {
   const [hover, setHover] = useState(false);
-  // null = idle, -1 = indeterminate, 0-100 = real progress
   const [dlProgress, setDlProgress] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const { Icon, color, bg, isImage, isVideo } = getFileType(file.name);
@@ -61,12 +30,11 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
       await downloadWithProgress(file.url, file.name, (pct) => setDlProgress(pct), abortControllerRef.current.signal);
     } catch (err) {
       if (err instanceof Error && err.message === 'Download cancelled') {
-        // Download was cancelled
+        // Cancelled by user
       } else {
         window.open(file.url, '_blank');
       }
     } finally {
-      // Keep 100% shown briefly, then reset (unless cancelled)
       if (dlProgress !== null) {
         setTimeout(() => setDlProgress(null), 1500);
       }
@@ -98,6 +66,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
             opacity: hover || selected ? 1 : 0.5
           }}
           title={selected ? 'Deselect' : 'Select'}
+          aria-label={selected ? `Deselect ${file.name}` : `Select ${file.name}`}
         >
           {selected ? (
             <CheckCircle2 size={18} color="#fff" fill="#fff" />
@@ -112,6 +81,10 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
         className="relative flex items-center justify-center overflow-hidden"
         style={{ height: 100, background: bg, cursor: canPreview ? 'pointer' : 'default' }}
         onClick={() => canPreview && onPreview(file)}
+        role={canPreview ? 'button' : undefined}
+        tabIndex={canPreview ? 0 : undefined}
+        aria-label={canPreview ? `Preview ${file.name}` : undefined}
+        onKeyDown={(e) => { if (canPreview && e.key === 'Enter') onPreview(file); }}
       >
         {isImage ? (
           <img
@@ -137,7 +110,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
           {file.name}
         </p>
         <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-          {file.uploader_name ? `Uploaded by ${file.uploader_name} · ` : ''}{formatSize(file.size)} · {timeStr}
+          {file.uploader_name ? `Uploaded by ${file.uploader_name} · ` : ''}{formatFileSize(file.size)} · {timeStr}
         </p>
 
         {/* Download progress bar */}
@@ -149,7 +122,6 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
             </div>
             <div className="progress-track" style={{ height: 3 }}>
               {dlProgress === -1 ? (
-                /* Indeterminate: unknown Content-Length */
                 <div
                   style={{
                     height: '100%',
@@ -169,17 +141,16 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
         {/* Actions */}
         <div className="flex gap-2">
           {isDownloading ? (
-            <>
-              <button
-                onClick={handleCancelDownload}
-                className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
-                style={{ color: '#ef4444' }}
-                title="Cancel download"
-              >
-                <X size={12} />
-                Cancel
-              </button>
-            </>
+            <button
+              onClick={handleCancelDownload}
+              className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
+              style={{ color: '#ef4444' }}
+              title="Cancel download"
+              aria-label="Cancel download"
+            >
+              <X size={12} />
+              Cancel
+            </button>
           ) : (
             <>
               <button
@@ -188,6 +159,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
                 className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
                 style={{ color: 'var(--text-muted)' }}
                 title="Download file"
+                aria-label={`Download ${file.name}`}
               >
                 <Download size={12} />
                 {dlProgress === 100 ? 'Done ✓' : 'Download'}
@@ -196,6 +168,7 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
                 onClick={() => onDelete(file.id, file.url)}
                 className="btn-ghost p-1.5"
                 title="Delete"
+                aria-label={`Delete ${file.name}`}
               >
                 <Trash2 size={13} style={{ color: '#ef4444' }} />
               </button>
@@ -206,3 +179,4 @@ export function FileCard({ file, selected = false, onSelect, onDelete, onPreview
     </div>
   );
 }
+export type { FileData };
