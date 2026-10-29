@@ -68,3 +68,4 @@ describe('SyncPadIO Helper Utilities', () => {
     expect(detectCodeLanguage('npm run build')).toBe('bash');
   });
 });
+

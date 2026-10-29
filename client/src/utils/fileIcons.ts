@@ -16,3 +16,4 @@ export function getFileType(name: string) {
     return { Icon: Code, color: '#34d399', bg: 'rgba(52,211,153,0.1)', isImage: false, isVideo: false };
   return { Icon: File, color: '#9ca3af', bg: 'rgba(156,163,175,0.1)', isImage: false, isVideo: false };
 }
+

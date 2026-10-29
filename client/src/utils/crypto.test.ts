@@ -93,3 +93,4 @@ describe('SyncPadIO Cryptography Engine V2', () => {
     expect(shareUrl).toContain('#k=abc123key');
   });
 });
+

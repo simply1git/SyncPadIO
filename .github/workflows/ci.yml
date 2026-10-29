@@ -32,3 +32,4 @@ jobs:
 
       - name: Build Production Bundle
         run: npm --prefix client run build
+

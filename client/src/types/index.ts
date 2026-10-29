@@ -32,3 +32,4 @@ export interface UploadItem {
 }
 
 export type ConnectionStatusType = 'connecting' | 'connected' | 'offline';
+
