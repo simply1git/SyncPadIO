@@ -16,6 +16,7 @@ export function PreviewModal({ file, roomId, encryptionKey, onClose }: Props) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [decryptedBlob, setDecryptedBlob] = useState<Blob | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [imageError, setImageError] = useState(false);
 
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
   const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'avif'].includes(ext);
@@ -186,12 +187,26 @@ export function PreviewModal({ file, roomId, encryptionKey, onClose }: Props) {
             </div>
           ) : (
             <>
-              {isImage && previewUrl && (
+              {isImage && previewUrl && !imageError && (
                 <img
                   src={previewUrl}
                   alt={file.name}
                   style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }}
+                  onError={() => setImageError(true)}
                 />
+              )}
+              {isImage && imageError && (
+                <div className="text-center p-6">
+                  <p className="text-sm font-medium mb-1" style={{ color: '#ef4444' }}>
+                    Preview rendering failed
+                  </p>
+                  <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                    Browser was unable to decode the image format directly.
+                  </p>
+                  <button onClick={handleDownload} className="btn-accent px-4 py-2 text-xs">
+                    Download File
+                  </button>
+                </div>
               )}
               {isVideo && previewUrl && (
                 <video

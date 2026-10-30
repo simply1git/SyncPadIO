@@ -145,14 +145,34 @@ export async function decryptText(encrypted: string, roomId: string, customSecre
 
       const iv = combined.slice(0, 12);
       const ciphertext = combined.slice(12);
-      const key = await deriveKey(roomId, customSecret);
 
-      const plainBuf = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
-        key,
-        ciphertext
-      );
-      return new TextDecoder().decode(plainBuf);
+      // A. Try with customSecret if provided
+      if (customSecret && customSecret.trim() !== '') {
+        try {
+          const key = await deriveKey(roomId, customSecret);
+          const plainBuf = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            ciphertext
+          );
+          return new TextDecoder().decode(plainBuf);
+        } catch {
+          // customSecret failed, try fallback to roomId
+        }
+      }
+
+      // B. Try with standard roomId (room code)
+      try {
+        const key = await deriveKey(roomId, undefined);
+        const plainBuf = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv },
+          key,
+          ciphertext
+        );
+        return new TextDecoder().decode(plainBuf);
+      } catch {
+        // Both failed
+      }
     }
 
     // 2. Fallback to legacy V1 format (static salt)
@@ -233,6 +253,11 @@ export function getMimeTypeFromName(fileName: string): string {
     svg: 'image/svg+xml',
     bmp: 'image/bmp',
     avif: 'image/avif',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    ico: 'image/x-icon',
+    tiff: 'image/tiff',
+    tif: 'image/tiff',
     mp4: 'video/mp4',
     webm: 'video/webm',
     mov: 'video/quicktime',
@@ -256,9 +281,10 @@ export function getMimeTypeFromName(fileName: string): string {
 /**
  * Checks if a file entry is marked as encrypted (via field or storage path convention).
  */
-export function isFileEncrypted(file: { name?: string; storage_path?: string; is_encrypted?: boolean }): boolean {
+export function isFileEncrypted(file: { name?: string; storage_path?: string; url?: string; is_encrypted?: boolean }): boolean {
   if (file.is_encrypted === true) return true;
   if (file.storage_path && file.storage_path.includes('_enc_')) return true;
+  if (file.url && file.url.includes('_enc_')) return true;
   if (file.name && file.name.includes('_enc_')) return true;
   return false;
 }
@@ -306,19 +332,25 @@ export async function encryptFile(
 /**
  * High-performance client-side file decryption using native Web Crypto AES-256-GCM.
  * Expects binary format: [12-byte IV][Ciphertext + 16-byte Tag].
+ * Uses zero-offset memory alignment for 100% cross-browser reliability.
  */
 export async function decryptFile(
-  encryptedBuffer: ArrayBuffer,
+  encryptedData: ArrayBuffer | ArrayBufferView,
   roomId: string,
   customSecret?: string,
   mimeType?: string
 ): Promise<Blob> {
-  if (encryptedBuffer.byteLength < 28) {
+  const bytes = encryptedData instanceof ArrayBuffer
+    ? new Uint8Array(encryptedData)
+    : new Uint8Array(encryptedData.buffer, encryptedData.byteOffset, encryptedData.byteLength);
+
+  if (bytes.byteLength < 28) {
     throw new Error('Encrypted payload too short for AES-GCM (minimum 28 bytes required)');
   }
 
-  const iv = new Uint8Array(encryptedBuffer, 0, 12);
-  const ciphertext = new Uint8Array(encryptedBuffer, 12);
+  // Safe slice ensures standalone 0-offset buffer for Web Crypto
+  const iv = bytes.slice(0, 12);
+  const ciphertext = bytes.slice(12);
   const key = await deriveKey(roomId, customSecret);
 
   const plainBuf = await crypto.subtle.decrypt(
@@ -331,21 +363,41 @@ export async function decryptFile(
 }
 
 /**
- * Safe file decryption with graceful fallback to unencrypted original buffer
- * if decryption fails (ensures 100% backward compatibility with legacy uploads).
+ * Safe file decryption with multi-key recovery and fallback:
+ * 1. If customSecret is passed, attempts decryption with customSecret.
+ * 2. If that fails or customSecret is absent, attempts decryption with roomId (room code).
+ * 3. If neither succeeds, falls back to unencrypted original buffer for legacy files.
  */
 export async function safeDecryptFile(
-  buffer: ArrayBuffer,
+  data: ArrayBuffer | ArrayBufferView,
   roomId: string,
   customSecret?: string,
   mimeType?: string
 ): Promise<Blob> {
-  try {
-    return await decryptFile(buffer, roomId, customSecret, mimeType);
-  } catch {
-    // Return original buffer as Blob if not encrypted or key does not match
-    return new Blob([buffer], { type: mimeType || 'application/octet-stream' });
+  const bytes = data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+
+  // 1. Try customSecret if provided
+  if (customSecret && customSecret.trim() !== '') {
+    try {
+      return await decryptFile(bytes, roomId, customSecret, mimeType);
+    } catch {
+      // Fallback to roomId
+    }
   }
+
+  // 2. Try roomId (the standard room code key)
+  if (roomId && roomId.trim() !== '') {
+    try {
+      return await decryptFile(bytes, roomId, undefined, mimeType);
+    } catch {
+      // roomId decryption failed
+    }
+  }
+
+  // 3. Fallback for unencrypted legacy files
+  return new Blob([bytes as BlobPart], { type: mimeType || 'application/octet-stream' });
 }
 
 /**

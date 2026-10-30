@@ -4,12 +4,11 @@ import { Toaster, toast } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
 import { useRoomLifecycle } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
-import { encryptText, generateRoomKey, getRoomKeyFromHash, setRoomKeyToHash } from './utils/crypto';
+import { encryptText, getRoomKeyFromHash, setRoomKeyToHash } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
 import { extractRoomCode, generateRoomId, generateUserId } from './utils/helpers';
 import {
   saveRoomOffline,
-  getCachedRoom,
   saveSnippetsOffline,
   getCachedSnippets,
   savePendingSnippetOffline,
@@ -184,15 +183,12 @@ export default function App() {
 
     setIsJoining(true);
 
-    // 1. Resolve encryption key (from param, URL hash, or cached offline metadata)
-    let resolvedKey = customKey || getRoomKeyFromHash() || undefined;
-    if (!resolvedKey) {
-      const cached = await getCachedRoom(cleanId);
-      if (cached?.encryptionKey) resolvedKey = cached.encryptionKey;
-    }
+    // 1. Resolve encryption key (from param or URL hash if explicitly provided)
+    const hashKey = getRoomKeyFromHash();
+    const resolvedKey = customKey || hashKey || undefined;
 
+    setEncryptionKey(resolvedKey);
     if (resolvedKey) {
-      setEncryptionKey(resolvedKey);
       setRoomKeyToHash(resolvedKey);
     }
 
@@ -386,16 +382,14 @@ export default function App() {
       handleSaveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
     const newRoomId = generateRoomId();
-    const newKey = await generateRoomKey();
-    joinRoomRealtime(newRoomId, newKey);
+    joinRoomRealtime(newRoomId);
   };
 
   const handleCreateCustomSession = async (customCode: string) => {
     if (!userName.trim()) {
       handleSaveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
-    const newKey = await generateRoomKey();
-    joinRoomRealtime(customCode, newKey);
+    joinRoomRealtime(customCode);
   };
 
   const handleLeaveRoom = async () => {

@@ -189,7 +189,43 @@ describe('SyncPadIO Cryptography Engine V2', () => {
       expect(getMimeTypeFromName('test.png')).toBe('image/png');
       expect(getMimeTypeFromName('movie.mp4')).toBe('video/mp4');
       expect(getMimeTypeFromName('doc.pdf')).toBe('application/pdf');
+      expect(getMimeTypeFromName('photo.HEIC')).toBe('image/heic');
       expect(getMimeTypeFromName('unknown.xyz')).toBe('application/octet-stream');
+    });
+
+    it('friend uploads image with room code; host with hash key decrypts seamlessly without corruption', async () => {
+      const roomId = 'ROOM77';
+      // Simulate real PNG image header bytes [137, 80, 78, 71, 13, 10, 26, 10, ...]
+      const pngBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
+      const imageBlob = new Blob([pngBytes], { type: 'image/png' });
+
+      // 1. Friend joined via room code (encryptionKey is undefined)
+      const { encryptedBlob } = await encryptFile(imageBlob, 'notes.png', roomId, undefined);
+      const encBuf = await encryptedBlob.arrayBuffer();
+
+      // 2. Host has a custom hash key in their URL (#k=hostKey123)
+      const hostHashKey = 'hostKey123';
+      const decryptedBlob = await safeDecryptFile(encBuf, roomId, hostHashKey, 'image/png');
+
+      // 3. Host successfully recovers the clean uncorrupted PNG image
+      expect(decryptedBlob.size).toBe(pngBytes.byteLength);
+      expect(decryptedBlob.type).toBe('image/png');
+
+      const recoveredBuf = await decryptedBlob.arrayBuffer();
+      const recoveredBytes = new Uint8Array(recoveredBuf);
+      expect(Array.from(recoveredBytes)).toEqual(Array.from(pngBytes));
+    });
+
+    it('text snippets decrypt seamlessly between peers even with mismatched hash keys', async () => {
+      const roomId = 'TEAM88';
+      const message = 'Meeting notes: ship client-side E2EE files';
+
+      // Friend joined via room code and encrypts with roomId
+      const ciphertext = await encryptText(message, roomId, undefined);
+
+      // Host has a custom hash key, but decryptText falls back to roomId
+      const decrypted = await decryptText(ciphertext, roomId, 'differentHostKey');
+      expect(decrypted).toBe(message);
     });
   });
 });
