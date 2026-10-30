@@ -119,7 +119,9 @@ export function ShareModal({ roomId, userCount, encryptionKey, onClose }: Props)
           <span className="flex items-center gap-1">
             <Globe size={11} /> {currentHost}
           </span>
-          <span>Auto-deletes after 1h idle</span>
+          <span title="Session stays active as long as you use it, or for 24 hours of inactivity">
+            Preserved for 24h of inactivity
+          </span>
         </div>
       </div>
     </div>

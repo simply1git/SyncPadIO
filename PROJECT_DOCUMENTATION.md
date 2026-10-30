@@ -23,8 +23,8 @@
 
 **SyncPadIO** is a modern, ephemeral collaboration and sharing platform prioritizing privacy, simplicity, and zero friction.
 
-- ✅ **Ephemeral Sessions**: Sessions exist only during active collaboration; automatically purged after 1 hour of inactivity or when deserted.
-- ✅ **Zero-Knowledge E2EE**: Snippets are encrypted client-side using AES-256-GCM. The encryption key resides in the URL hash (`#k=...`) and is never sent to the server or database.
+- ✅ **Safe 24-Hour Ephemeral Sessions**: Sessions stay active during collaboration and remain preserved for 24 hours of inactivity across device sleep and reboots.
+- ✅ **Zero-Knowledge E2EE**: Snippets and files are encrypted client-side using AES-256-GCM. The encryption key resides in the URL hash (`#k=...`) or PBKDF2 room derivation and is never sent to the server.
 - ✅ **Real-Time Presence Tracking**: See live peer counts and synchronized updates with sub-100ms latency via Supabase Realtime WebSockets.
 - ✅ **Syntax Highlighting & Markdown**: Real-time code detection for 50+ programming languages with Prism highlighting and live Markdown rendering.
 - ✅ **Batch File Downloads**: Download all shared files at once as a compressed `.zip` archive or sequentially with live progress.
@@ -34,13 +34,13 @@
 
 ## ✨ Key Features
 
-### 1. Ephemeral Sessions
+### 1. Ephemeral Sessions & Safe Expiration
 - Join or create rooms instantly using 6-character room codes or custom names.
-- Sessions auto-expire:
-  - After **10 minutes** if all users leave (presence desertion).
-  - After **1 hour** of user inactivity.
-  - When manually exited.
-- When expired, cascading database foreign keys delete associated snippets and Supabase Storage objects.
+- Safe 24-Hour Expiration:
+  - Rooms remain active during use and are preserved for **24 hours** after the last activity.
+  - Temporary disconnections or tab closures do not destroy the session; users or peers can rejoin anytime within 24 hours.
+  - Safe 24-hour expiration cascades foreign keys to purge snippets, files, and Supabase Storage objects cleanly.
+  - When manually exited, local state and IndexedDB outbox cache are cleared immediately.
 
 ### 2. High-Performance File Handling
 - Up to 50MB per file with XHR streaming upload progress and per-file cancellation.
@@ -94,12 +94,13 @@ SyncPadIO implements a true zero-knowledge end-to-end encryption model:
 
 ---
 
-## ⏱️ Room Lifecycle & Cleanup
+## ⏱️ Room Lifecycle & Safe Expiration
 
 The `useRoomLifecycle` hook manages session vitality:
 - **Throttled Updates**: Activity writes to PostgreSQL are strictly throttled to at most once per 60 seconds (`ACTIVITY_THROTTLE_MS = 60_000`).
 - **Interaction Filtering**: Evaluates real user interactions (`keydown`, `click`, `touchstart`) and explicitly filters out high-frequency `mousemove` events.
-- **Grace-Period Desertion**: When presence drops to 0 peers, a 10-minute cleanup timer begins. If peers reconnect before the timeout, the cleanup cancels automatically.
+- **Safe 24-Hour Inactivity Window**: Sessions are preserved for 24 hours (`TWENTY_FOUR_HOURS_MS = 86_400_000`) from the latest activity. Disconnecting or closing tabs does not destroy the room prematurely.
+- **Automated Keep-Alive**: GitHub Actions workflow pings the frontend and Supabase REST API every 4 hours, keeping the free-tier backend awake 24/7/365.
 
 ---
 

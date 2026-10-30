@@ -1,4 +1,4 @@
-import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint } from 'lucide-react';
+import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatusType } from '../types';
 
@@ -109,6 +109,15 @@ export function RoomHeader({
             <ShieldCheck size={12} /> E2EE
           </span>
         )}
+
+        {/* 24h Safe Expiry badge */}
+        <span
+          className="hidden md:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded"
+          style={{ background: 'rgba(96,165,250,0.12)', color: 'var(--accent)' }}
+          title="Safe 24-hour session — preserved for 24h of inactivity; resets on every action"
+        >
+          <Clock size={11} /> 24h Safe
+        </span>
       </div>
 
       {/* Right controls */}

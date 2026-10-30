@@ -2,13 +2,19 @@ name: Keep Alive
 
 on:
   schedule:
-    # Run once every 6 hours (Supabase free tier requires activity within 1 week)
-    - cron: '0 */6 * * *'
+    # Run every 4 hours to keep Supabase Free Tier active 24/7/365 without auto-pausing
+    - cron: '0 */4 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Frontend
-        run: curl -f https://sync-pad-io.vercel.app || echo "Frontend ping failed"
+      - name: Ping Frontend Vercel Deployment
+        run: curl -f -s -o /dev/null -w "Frontend HTTP: %{http_code}\n" https://sync-pad-io.vercel.app || echo "Frontend ping warning"
+
+      - name: Ping Supabase Database & REST API
+        run: |
+          curl -f -s -o /dev/null -w "Supabase REST API HTTP: %{http_code}\n" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4am1hYWprdHFlaG5hZXJnbmt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MDU0MTksImV4cCI6MjA5MzI4MTQxOX0.ZQq6ajWmjHTnQRu4347FN_Vy5B0-n5RVsG3ms0W9Nhg" \
+            "https://fxjmaajktqehnaergnky.supabase.co/rest/v1/rooms?select=id&limit=1" || echo "Supabase ping warning"

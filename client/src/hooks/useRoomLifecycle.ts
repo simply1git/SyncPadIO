@@ -8,20 +8,21 @@ interface RoomLifecycleOptions {
   inactivityTimeoutMs?: number;
 }
 
+export const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000; // 24 Hours Safe Expiry TTL
 const ACTIVITY_THROTTLE_MS = 60_000; // Throttle DB updates to once per 60s max
 
 /**
  * Manages room lifecycle:
  * - Upserts room on initial join
  * - Throttles DB updates to prevent network/connection exhaustion
- * - Manages auto-expiration timeout
+ * - Manages safe 24-hour auto-expiration timeout (resets on user interaction)
  * - Subscribes to external deletion events
  */
 export const useRoomLifecycle = ({
   roomId,
   userId: _userId,
   onRoomDeleted,
-  inactivityTimeoutMs = 60 * 60 * 1000, // 1 hour default
+  inactivityTimeoutMs = TWENTY_FOUR_HOURS_MS,
 }: RoomLifecycleOptions) => {
   const onRoomDeletedRef = useRef(onRoomDeleted);
   useEffect(() => { onRoomDeletedRef.current = onRoomDeleted; });

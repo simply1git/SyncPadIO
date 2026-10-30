@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Toaster, toast } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
-import { useRoomLifecycle } from './hooks/useRoomLifecycle';
+import { useRoomLifecycle, TWENTY_FOUR_HOURS_MS } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, getRoomKeyFromHash, setRoomKeyToHash } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
@@ -72,7 +72,6 @@ export default function App() {
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
   const p2pServiceRef = useRef<WebRTCTransferService | null>(null);
-  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
   const isSyncingRef = useRef(false);
   const [myUserId] = useState(getPersistentUserId);
@@ -114,6 +113,7 @@ export default function App() {
     roomId,
     userId: myUserId,
     onRoomDeleted,
+    inactivityTimeoutMs: TWENTY_FOUR_HOURS_MS,
   });
 
   // ── Flush Pending Offline Snippets ──────────────────────────────────────
@@ -245,7 +245,7 @@ export default function App() {
 
       const { data: existingRoom, error: fetchErr } = await supabase
         .from('rooms')
-        .select('id')
+        .select('id, last_activity')
         .eq('id', cleanId)
         .maybeSingle();
 
@@ -253,7 +253,20 @@ export default function App() {
         console.warn('Room check notice:', fetchErr);
       }
 
-      if (!existingRoom) {
+      // Safe 24-Hour Expiration Check:
+      // If room is older than 24 hours of inactivity, clean up old records safely and start fresh
+      const isExpired = existingRoom?.last_activity && (now - existingRoom.last_activity > TWENTY_FOUR_HOURS_MS);
+
+      if (isExpired) {
+        await deleteRoom();
+        await supabase.from('rooms').upsert({
+          id: cleanId,
+          created_at: now,
+          last_activity: now,
+          status: 'active'
+        }, { onConflict: 'id' });
+        toast('Previous 24-hour session expired. Fresh session started.', { icon: '⏳' });
+      } else if (!existingRoom) {
         const { error: upsertError } = await supabase.from('rooms').upsert({
           id: cleanId,
           created_at: now,
@@ -346,13 +359,16 @@ export default function App() {
         const state = ch.presenceState();
         const count = Object.values(state).reduce((a, v) => a + v.length, 0);
         setUserCount(Math.max(1, count));
-        if (cleanupTimerRef.current) { clearTimeout(cleanupTimerRef.current); cleanupTimerRef.current = null; }
       })
       .on('presence', { event: 'leave' }, () => {
         const state = ch.presenceState();
         const count = Object.values(state).reduce((a, v) => a + v.length, 0);
+        setUserCount(Math.max(1, count));
+        // Safe 24-Hour Expiration:
+        // Do NOT delete the room on temporary absence!
+        // Instead, stamp last_activity so the room remains securely accessible for 24 hours.
         if (count === 0) {
-          cleanupTimerRef.current = setTimeout(() => deleteRoom(), 10 * 60 * 1000);
+          updateLastActivity(true);
         }
       })
       .on('broadcast', { event: 'webrtc-signal' }, (res) => {
@@ -396,7 +412,7 @@ export default function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [myUserId, deleteRoom, flushPendingOfflineSnippets]);
+  }, [myUserId, deleteRoom, flushPendingOfflineSnippets, updateLastActivity]);
 
   // ── URL Parameter Auto-Join ─────────────────────────────────────────────
   useEffect(() => {

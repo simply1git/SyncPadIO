@@ -95,3 +95,4 @@ Test your domain security grade at [SecurityHeaders.com](https://securityheaders
 - [ ] Joining a room on the custom domain synchronizes in Realtime with peers on mobile and desktop.
 - [ ] P2P WebRTC Direct Transfer connects seamlessly without ICE candidate drops.
 - [ ] Biometric Passkeys (Touch ID / Face ID) bind to `https://yourdomain.com` domain origin cleanly.
+

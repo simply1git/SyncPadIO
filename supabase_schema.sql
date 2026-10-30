@@ -140,3 +140,25 @@ create policy "Public Delete Access"
 
 -- 13. Cleanup Migration
 alter table rooms drop column if exists user_count;
+
+-- 14. 24-Hour Safe Automated Cleanup Stored Function
+-- Deletes rooms that have had zero activity for 24+ hours (cascades to snippets and files)
+create or replace function cleanup_expired_24h_rooms()
+returns integer as $$
+declare
+  deleted_count integer;
+  cutoff_time bigint;
+begin
+  -- Cutoff: now minus 24 hours in milliseconds (86,400,000 ms)
+  cutoff_time := (extract(epoch from now()) * 1000) - (24 * 60 * 60 * 1000);
+  
+  with deleted as (
+    delete from rooms
+    where last_activity < cutoff_time
+    returning id
+  )
+  select count(*) into deleted_count from deleted;
+  
+  return deleted_count;
+end;
+$$ language plpgsql security definer;

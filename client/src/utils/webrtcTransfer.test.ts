@@ -74,3 +74,4 @@ describe('WebRTC P2P Direct Transfer Service', () => {
     expect(service.getAllTransfers()).toEqual([]);
   });
 });
+
