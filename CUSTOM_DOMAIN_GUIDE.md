@@ -78,7 +78,7 @@ Because SyncPadIO uses Supabase for Realtime broadcast, PostgreSQL database sync
 SyncPadIO ships with production-hardened headers pre-configured in `vercel.json`:
 - **Content-Security-Policy (CSP):**
   - Allows Supabase WSS (`wss://*.supabase.co`) for Realtime presence and WebRTC signaling.
-  - Allows Google STUN servers (`stun:stun.l.google.com:19302`) for zero-server P2P transfers.
+  - Zero-server WebRTC P2P direct streaming (STUN candidate negotiation handled natively by browser RTCPeerConnection).
   - Restricts frame embedding (`X-Frame-Options: DENY`).
   - Strict referrer policy (`Referrer-Policy: strict-origin-when-cross-origin`).
   - Restricts hardware permissions (`Permissions-Policy: camera=(), microphone=(), geolocation=()`).

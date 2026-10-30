@@ -68,10 +68,10 @@ export function RoomHeader({
         </div>
 
         {/* User name badge */}
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-1.5 text-xs">
           <button
             onClick={onOpenNameModal}
-            className="btn-ghost px-2 py-1 rounded-md text-xs"
+            className="btn-ghost px-2 py-0.5 rounded text-xs"
             style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)' }}
             title="Edit your display name"
             aria-label={`Display name: ${userName || 'Set Name'}. Click to edit.`}
@@ -84,7 +84,7 @@ export function RoomHeader({
         {/* Room Code with Copy */}
         <button
           onClick={copyRoomCode}
-          className="font-mono text-sm font-bold px-2.5 py-1 rounded-md transition-opacity hover:opacity-80"
+          className="font-mono text-xs font-bold px-2 py-0.5 rounded transition-opacity hover:opacity-80"
           style={{ color: 'var(--accent)', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', letterSpacing: '0.12em' }}
           title="Click to copy room code"
           aria-label={`Room code: ${roomId}. Click to copy.`}
@@ -95,7 +95,7 @@ export function RoomHeader({
         {/* Offline indicator badge */}
         {connStatus === 'offline' && (
           <span
-            className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded"
+            className="hidden sm:inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
             style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}
             title="Offline — changes are queued locally and will sync when reconnected"
           >
@@ -106,18 +106,18 @@ export function RoomHeader({
         {/* E2EE indicator */}
         {hasEncryptionKey && (
           <span
-            className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded"
+            className="hidden sm:inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
             style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}
             title="Zero-knowledge encryption key active in URL hash"
           >
-            <ShieldCheck size={12} /> E2EE
+            <ShieldCheck size={11} /> E2EE
           </span>
         )}
 
         {/* Interactive Retention status button */}
         <button
           onClick={onOpenLifetimeModal}
-          className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-all hover:scale-105 cursor-pointer shadow-sm"
+          className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded transition-all hover:scale-105 cursor-pointer shadow-sm"
           style={{
             background: keepAlive24h ? 'rgba(96,165,250,0.15)' : 'rgba(245,158,11,0.12)',
             color: keepAlive24h ? 'var(--accent)' : '#f59e0b',
@@ -130,30 +130,30 @@ export function RoomHeader({
           }
           aria-label="Session retention information and settings"
         >
-          {keepAlive24h ? <Clock size={12} className="text-accent" /> : <Zap size={12} className="text-amber-400" />}
-          <span>{keepAlive24h ? '24h Safe Room' : 'Ephemeral'}</span>
-          <span className="text-[9px] opacity-75 font-semibold bg-white/10 px-1 rounded">Info</span>
+          {keepAlive24h ? <Clock size={11} className="text-accent" /> : <Zap size={11} className="text-amber-400" />}
+          <span>{keepAlive24h ? '24h Safe' : 'Ephemeral'}</span>
+          <span className="text-[8px] opacity-75 font-semibold bg-white/10 px-1 rounded">Info</span>
         </button>
       </div>
 
       {/* Right controls */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }} aria-label={`${userCount} active users`}>
-          <Users size={14} /><span>{userCount}</span>
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }} aria-label={`${userCount} active users`}>
+          <Users size={13} /><span>{userCount}</span>
         </div>
 
         <button
           onClick={onOpenShareModal}
-          className="btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
+          className="btn-ghost px-2.5 py-1 text-xs flex items-center gap-1 rounded-md"
           id="share-btn"
           aria-label="Share room"
         >
-          <Share2 size={14} /> Share
+          <Share2 size={13} /> Share
         </button>
 
         <button
           onClick={onOpenBiometricModal}
-          className="btn-ghost px-2.5 py-1.5 text-xs flex items-center gap-1.5 rounded-lg"
+          className="btn-ghost px-2 py-1 text-xs flex items-center gap-1 rounded-md"
           style={{
             color: hasPasskey ? '#22c55e' : 'var(--text-muted)',
             background: hasPasskey ? 'rgba(34,197,94,0.1)' : 'transparent',
@@ -162,26 +162,26 @@ export function RoomHeader({
           title={hasPasskey ? 'Biometric Passkey active (Click to lock or manage)' : 'Set up Biometric Passkey lock'}
           aria-label="Biometric security settings"
         >
-          <Fingerprint size={15} />
+          <Fingerprint size={13} />
           <span className="hidden md:inline">{hasPasskey ? 'Protected' : 'Passkey'}</span>
         </button>
 
         <button
           onClick={onToggleDarkMode}
-          className="btn-ghost p-1.5"
+          className="btn-ghost p-1 rounded-md"
           title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           aria-label="Toggle dark/light mode"
         >
-          {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+          {darkMode ? <Sun size={14} /> : <Moon size={14} />}
         </button>
 
         <button
           onClick={onLeaveRoom}
-          className="btn-ghost p-1.5"
+          className="btn-ghost p-1 rounded-md"
           title="Leave room"
           aria-label="Leave room"
         >
-          <LogOut size={16} style={{ color: '#ef4444' }} />
+          <LogOut size={14} style={{ color: '#ef4444' }} />
         </button>
       </div>
     </header>

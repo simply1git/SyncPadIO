@@ -112,7 +112,7 @@ export function SnippetFeed({
         <div className="flex items-center gap-2 mt-2">
           <button
             onClick={() => setEncryptMode(v => !v)}
-            className="btn-ghost flex items-center gap-1.5 px-3 py-1.5 text-xs"
+            className="btn-ghost flex items-center gap-1 px-2.5 py-1 text-xs rounded-md"
             style={encryptMode ? { color: '#f59e0b', background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.4)' } : {}}
             title="Toggle AES-256-GCM encryption"
             aria-pressed={encryptMode}
@@ -128,7 +128,7 @@ export function SnippetFeed({
           <button
             onClick={handleSend}
             disabled={!text.trim() || isSending}
-            className="btn-accent ml-auto px-4 py-1.5 text-sm font-semibold"
+            className="btn-accent ml-auto px-3 py-1 text-xs font-semibold"
             id="send-snippet-btn"
             aria-label="Send snippet"
           >

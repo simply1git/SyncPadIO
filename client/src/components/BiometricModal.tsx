@@ -128,16 +128,16 @@ export function BiometricModal({ roomId, isOpen, onClose, onLockSession }: Props
                 <div className="flex gap-2">
                   <button
                     onClick={handleLockNow}
-                    className="btn-accent flex-1 py-2.5 text-sm font-semibold flex items-center justify-center gap-2"
+                    className="btn-accent flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5"
                   >
-                    <Lock size={15} /> Lock Session Now
+                    <Lock size={14} /> Lock Session Now
                   </button>
                   <button
                     onClick={handleRemove}
-                    className="btn-ghost px-3 py-2.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-1.5"
+                    className="btn-ghost px-2.5 py-2 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-1"
                     title="Remove passkey"
                   >
-                    <Trash2 size={14} /> Remove
+                    <Trash2 size={13} /> Remove
                   </button>
                 </div>
               </div>
@@ -146,9 +146,9 @@ export function BiometricModal({ roomId, isOpen, onClose, onLockSession }: Props
                 <button
                   onClick={handleRegister}
                   disabled={loading}
-                  className="btn-accent w-full py-3 text-sm font-semibold flex items-center justify-center gap-2"
+                  className="btn-accent w-full py-2 text-xs font-semibold flex items-center justify-center gap-1.5"
                 >
-                  <Fingerprint size={16} />
+                  <Fingerprint size={15} />
                   {loading ? 'Registering Device Sensor…' : 'Enable Biometric Lock'}
                 </button>
                 <p className="text-[11px] text-center mt-2" style={{ color: 'var(--text-faint)' }}>

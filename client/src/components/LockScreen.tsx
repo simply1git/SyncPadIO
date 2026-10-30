@@ -80,17 +80,17 @@ export function LockScreen({ roomId, onUnlocked, onLeaveRoom }: Props) {
         <button
           onClick={handleBiometricUnlock}
           disabled={loading}
-          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2.5 shadow-lg"
+          className="btn-accent w-full py-2.5 text-sm font-semibold flex items-center justify-center gap-2 shadow-lg"
           style={{ boxShadow: '0 4px 20px rgba(96,165,250,0.3)' }}
         >
-          <Fingerprint size={20} />
+          <Fingerprint size={16} />
           {loading ? 'Authenticating…' : 'Unlock with Biometrics'}
         </button>
 
         {!showPassphraseInput ? (
           <button
             onClick={() => setShowPassphraseInput(true)}
-            className="btn-ghost w-full py-2 text-xs flex items-center justify-center gap-1.5"
+            className="btn-ghost w-full py-1.5 text-xs flex items-center justify-center gap-1.5"
             style={{ color: 'var(--text-muted)' }}
           >
             <KeyRound size={13} />
@@ -103,13 +103,13 @@ export function LockScreen({ roomId, onUnlocked, onLeaveRoom }: Props) {
             </label>
             <div className="flex gap-2">
               <input
-                className="input-dark flex-1 px-3 py-2 text-sm font-mono uppercase tracking-widest"
+                className="input-dark flex-1 px-3 py-1.5 text-xs font-mono uppercase tracking-wider"
                 placeholder={roomId}
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
                 autoFocus
               />
-              <button type="submit" className="btn-accent px-4 py-2 text-xs font-semibold">
+              <button type="submit" className="btn-accent px-3 py-1.5 text-xs font-semibold">
                 Unlock
               </button>
             </div>
@@ -119,7 +119,7 @@ export function LockScreen({ roomId, onUnlocked, onLeaveRoom }: Props) {
         <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
           <button
             onClick={onLeaveRoom}
-            className="btn-ghost w-full py-2 text-xs flex items-center justify-center gap-1.5 text-red-400 hover:bg-red-500/10"
+            className="btn-ghost w-full py-1.5 text-xs flex items-center justify-center gap-1.5 text-red-400 hover:bg-red-500/10"
           >
             <LogOut size={13} />
             Leave Session

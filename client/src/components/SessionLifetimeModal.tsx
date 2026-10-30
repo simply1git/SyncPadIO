@@ -166,7 +166,7 @@ export function SessionLifetimeModal({
 
             <button
               onClick={() => onToggle24h(!keepAlive24h)}
-              className="btn-accent w-full py-2.5 text-xs font-semibold flex items-center justify-center gap-2"
+              className="btn-accent w-full py-2 text-xs font-semibold flex items-center justify-center gap-1.5"
             >
               {keepAlive24h ? (
                 <>
@@ -194,3 +194,4 @@ export function SessionLifetimeModal({
     </div>
   );
 }
+

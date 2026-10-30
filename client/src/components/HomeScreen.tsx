@@ -76,25 +76,25 @@ export function HomeScreen({
 
       <div className="w-full" style={{ maxWidth: 400 }}>
         {/* Your Name */}
-        <div className="mb-5">
-          <label htmlFor="user-name-input" className="block text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+        <div className="mb-4">
+          <label htmlFor="user-name-input" className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
             YOUR NAME
           </label>
           <input
             id="user-name-input"
-            className="input-dark w-full px-4 py-3 text-base"
+            className="input-dark w-full px-3 py-2 text-sm"
             placeholder="Enter your name"
             value={userName}
             onChange={e => onUpdateUserName(e.target.value)}
             maxLength={30}
           />
-          <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
+          <p className="text-[11px] mt-1" style={{ color: 'var(--text-faint)' }}>
             Visible to peers in active rooms
           </p>
         </div>
 
         {/* Creator Session Retention Options */}
-        <div className="mb-5 space-y-2">
+        <div className="mb-4 space-y-1.5">
           <div className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
             <span>SESSION LIFETIME</span>
             <span className="text-[11px] text-accent font-normal">Creator can change anytime</span>
@@ -105,16 +105,16 @@ export function HomeScreen({
             <button
               type="button"
               onClick={() => setKeep24h(false)}
-              className={`p-3 rounded-xl text-left border transition-all ${
+              className={`p-2.5 rounded-lg text-left border transition-all ${
                 !keep24h
                   ? 'ring-2 ring-amber-400/50 bg-amber-500/10 border-amber-400/80'
                   : 'border-border opacity-70 hover:opacity-100'
               }`}
               style={{ background: !keep24h ? 'rgba(245, 158, 11, 0.08)' : 'var(--surface)' }}
             >
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between mb-0.5">
                 <span className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
-                  <Zap size={14} /> Ephemeral
+                  <Zap size={13} /> Ephemeral
                 </span>
                 {!keep24h && (
                   <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300">
@@ -122,7 +122,7 @@ export function HomeScreen({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+              <p className="text-[10px] leading-tight" style={{ color: 'var(--text-muted)' }}>
                 Auto-purged when empty or after 1h idle
               </p>
             </button>
@@ -131,16 +131,16 @@ export function HomeScreen({
             <button
               type="button"
               onClick={() => setKeep24h(true)}
-              className={`p-3 rounded-xl text-left border transition-all ${
+              className={`p-2.5 rounded-lg text-left border transition-all ${
                 keep24h
                   ? 'ring-2 ring-accent/50 bg-sky-500/10 border-accent/80'
                   : 'border-border opacity-70 hover:opacity-100'
               }`}
               style={{ background: keep24h ? 'rgba(96, 165, 250, 0.08)' : 'var(--surface)' }}
             >
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between mb-0.5">
                 <span className="flex items-center gap-1.5 text-xs font-bold text-accent">
-                  <Clock size={14} /> 24h Safe
+                  <Clock size={13} /> 24h Safe
                 </span>
                 {keep24h && (
                   <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-accent/20 text-sky-300">
@@ -148,7 +148,7 @@ export function HomeScreen({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+              <p className="text-[10px] leading-tight" style={{ color: 'var(--text-muted)' }}>
                 Preserved for 24h even after users leave
               </p>
             </button>
@@ -159,18 +159,18 @@ export function HomeScreen({
         <button
           onClick={() => onCreateRoom(keep24h)}
           disabled={isJoining}
-          className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-3"
+          className="btn-accent w-full py-2.5 text-sm font-semibold flex items-center justify-center gap-2 mb-2"
           id="create-room-btn"
           aria-label="Create New Session"
         >
-          <Plus size={18} />
+          <Plus size={16} />
           {isJoining ? 'Creating…' : 'Create New Session'}
         </button>
 
         {/* Toggle custom code */}
         <button
           onClick={() => setShowCustomCodeInput(v => !v)}
-          className="btn-ghost w-full py-2 text-xs font-medium mb-3 text-center"
+          className="btn-ghost w-full py-1.5 text-xs font-medium mb-2.5 text-center"
           style={{ color: 'var(--accent)' }}
           aria-expanded={showCustomCodeInput}
         >
@@ -179,14 +179,14 @@ export function HomeScreen({
 
         {/* Custom code form */}
         {showCustomCodeInput && (
-          <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <label htmlFor="custom-code-input" className="block text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+          <div className="mb-3 p-2.5 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <label htmlFor="custom-code-input" className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
               ENTER CUSTOM CODE
             </label>
             <form onSubmit={handleCustomSubmit} className="flex gap-2">
               <input
                 id="custom-code-input"
-                className="input-dark flex-1 px-3 py-2 font-mono text-sm uppercase tracking-widest"
+                className="input-dark flex-1 px-3 py-1.5 font-mono text-xs uppercase tracking-wider"
                 placeholder="MYCODE"
                 value={customRoomCode}
                 onChange={e => setCustomRoomCode(extractRoomCode(e.target.value))}
@@ -196,7 +196,7 @@ export function HomeScreen({
               <button
                 type="submit"
                 disabled={!customRoomCode || isJoining}
-                className="btn-accent px-4 py-2 text-sm font-semibold"
+                className="btn-accent px-3 py-1.5 text-xs font-semibold"
               >
                 Create
               </button>
@@ -205,7 +205,7 @@ export function HomeScreen({
         )}
 
         {/* Divider */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-3">
           <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
           <span className="text-xs" style={{ color: 'var(--text-faint)' }}>or join existing</span>
           <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
@@ -215,7 +215,7 @@ export function HomeScreen({
         <form onSubmit={handleJoinSubmit} className="flex gap-2">
           <input
             id="join-room-input"
-            className="input-dark flex-1 px-4 py-3 font-mono text-lg uppercase tracking-widest"
+            className="input-dark flex-1 px-3 py-2 font-mono text-sm uppercase tracking-wider"
             placeholder="ROOM CODE"
             value={joinInput}
             onChange={e => setJoinInput(extractRoomCode(e.target.value))}
@@ -225,26 +225,26 @@ export function HomeScreen({
           <button
             type="submit"
             disabled={!joinInput || isJoining}
-            className="btn-accent px-4 py-3"
+            className="btn-accent px-3.5 py-2 flex items-center justify-center"
             aria-label="Join Room"
           >
-            <ArrowRight size={20} />
+            <ArrowRight size={16} />
           </button>
         </form>
 
         {/* Passkey-Secured Rooms on this Device */}
         {passkeyRooms.length > 0 && (
-          <div className="mt-5 p-3 rounded-xl" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center gap-1.5 text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
-              <Fingerprint size={14} className="text-emerald-400" />
+          <div className="mt-4 p-2.5 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-1.5 text-xs font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>
+              <Fingerprint size={13} className="text-emerald-400" />
               <span>Biometric-Protected Sessions</span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {passkeyRooms.map((code) => (
                 <button
                   key={code}
                   onClick={() => onJoinRoom(code)}
-                  className="font-mono text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all hover:scale-105"
+                  className="font-mono text-xs px-2 py-1 rounded-md flex items-center gap-1 transition-all hover:scale-105"
                   style={{
                     background: 'rgba(34, 197, 94, 0.1)',
                     border: '1px solid rgba(34, 197, 94, 0.25)',
