@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Frontend Vercel Deployment
-        run: curl -f -s -o /dev/null -w "Frontend HTTP: %{http_code}\n" https://sync-pad-io.vercel.app || echo "Frontend ping warning"
+        run: |
+          curl -f -s -o /dev/null -w "Frontend HTTP: %{http_code}\n" https://sync-pad-io.vercel.app || echo "Frontend ping warning"
 
       - name: Ping Supabase Database & REST API
         run: |
