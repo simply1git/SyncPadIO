@@ -15,6 +15,7 @@ interface Props {
   onOpenNameModal: () => void;
   onOpenShareModal: () => void;
   onOpenBiometricModal: () => void;
+  onOpenLifetimeModal?: () => void;
   onLeaveRoom: () => void;
 }
 
@@ -31,6 +32,7 @@ export function RoomHeader({
   onOpenNameModal,
   onOpenShareModal,
   onOpenBiometricModal,
+  onOpenLifetimeModal,
   onLeaveRoom,
 }: Props) {
   const copyRoomCode = () => {
@@ -112,22 +114,26 @@ export function RoomHeader({
           </span>
         )}
 
-        {/* Retention status badge */}
-        <span
-          className="hidden md:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded"
+        {/* Interactive Retention status button */}
+        <button
+          onClick={onOpenLifetimeModal}
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-all hover:scale-105 cursor-pointer shadow-sm"
           style={{
-            background: keepAlive24h ? 'rgba(96,165,250,0.12)' : 'rgba(255,255,255,0.06)',
-            color: keepAlive24h ? 'var(--accent)' : 'var(--text-muted)',
+            background: keepAlive24h ? 'rgba(96,165,250,0.15)' : 'rgba(245,158,11,0.12)',
+            color: keepAlive24h ? 'var(--accent)' : '#f59e0b',
+            border: keepAlive24h ? '1px solid rgba(96,165,250,0.3)' : '1px solid rgba(245,158,11,0.3)',
           }}
           title={
             keepAlive24h
-              ? 'Creator set 24h retention — preserved for 24h of inactivity'
-              : 'Ephemeral session — auto-deletes when all users leave or after 1h idle'
+              ? 'Creator 24h Safe Room active — click for info or settings'
+              : 'Default Ephemeral mode active — click for info or to enable 24h retention'
           }
+          aria-label="Session retention information and settings"
         >
-          {keepAlive24h ? <Clock size={11} /> : <Zap size={11} />}
-          {keepAlive24h ? '24h Safe' : 'Ephemeral'}
-        </span>
+          {keepAlive24h ? <Clock size={12} className="text-accent" /> : <Zap size={12} className="text-amber-400" />}
+          <span>{keepAlive24h ? '24h Safe Room' : 'Ephemeral'}</span>
+          <span className="text-[9px] opacity-75 font-semibold bg-white/10 px-1 rounded">Info</span>
+        </button>
       </div>
 
       {/* Right controls */}

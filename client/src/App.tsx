@@ -26,6 +26,7 @@ import { ShareModal } from './components/ShareModal';
 import { PreviewModal } from './components/PreviewModal';
 import { BiometricModal } from './components/BiometricModal';
 import { LockScreen } from './components/LockScreen';
+import { SessionLifetimeModal } from './components/SessionLifetimeModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WebRTCTransferService } from './utils/webrtcTransfer';
 import { hasRoomPasskey, isRoomLocked } from './utils/webAuthn';
@@ -67,6 +68,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [showShare, setShowShare] = useState(false);
   const [showBiometricModal, setShowBiometricModal] = useState(false);
+  const [showLifetimeModal, setShowLifetimeModal] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [showNameModal, setShowNameModal] = useState(false);
@@ -732,6 +734,7 @@ export default function App() {
             onOpenNameModal={() => setShowNameModal(true)}
             onOpenShareModal={() => setShowShare(true)}
             onOpenBiometricModal={() => setShowBiometricModal(true)}
+            onOpenLifetimeModal={() => setShowLifetimeModal(true)}
             onLeaveRoom={handleLeaveRoom}
           />
 
@@ -805,6 +808,16 @@ export default function App() {
               isOpen={showBiometricModal}
               onClose={() => setShowBiometricModal(false)}
               onLockSession={() => setIsLocked(true)}
+            />
+          )}
+
+          {showLifetimeModal && (
+            <SessionLifetimeModal
+              isOpen={showLifetimeModal}
+              onClose={() => setShowLifetimeModal(false)}
+              isCreator={isCreator}
+              keepAlive24h={keepAlive24h}
+              onToggle24h={handleToggle24hRetention}
             />
           )}
 

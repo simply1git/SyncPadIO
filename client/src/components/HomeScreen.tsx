@@ -93,52 +93,66 @@ export function HomeScreen({
           </p>
         </div>
 
-        {/* Expiration Mode Toggle (Creator Choice) */}
-        <div
-          className="mb-4 p-3 rounded-xl flex items-center justify-between cursor-pointer transition-colors"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
-          onClick={() => setKeep24h(v => !v)}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="p-1.5 rounded-lg flex-shrink-0"
-              style={{
-                background: keep24h ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.05)',
-                color: keep24h ? 'var(--accent)' : 'var(--text-muted)'
-              }}
-            >
-              <Clock size={16} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
-                  {keep24h ? '24-Hour Safe Room' : 'Ephemeral (Default)'}
-                </span>
-                <span
-                  className="text-[10px] px-1.5 py-0.2 rounded font-semibold uppercase tracking-wider"
-                  style={{
-                    background: keep24h ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.08)',
-                    color: keep24h ? 'var(--accent)' : 'var(--text-muted)',
-                  }}
-                >
-                  {keep24h ? '24h TTL' : 'Auto-purge'}
-                </span>
-              </div>
-              <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                {keep24h
-                  ? 'Preserved for 24 hours even after all users leave'
-                  : 'Expires on inactivity or when all users leave'}
-              </p>
-            </div>
+        {/* Creator Session Retention Options */}
+        <div className="mb-5 space-y-2">
+          <div className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+            <span>SESSION LIFETIME</span>
+            <span className="text-[11px] text-accent font-normal">Creator can change anytime</span>
           </div>
-          <input
-            type="checkbox"
-            checked={keep24h}
-            onChange={(e) => setKeep24h(e.target.checked)}
-            className="w-4 h-4 rounded text-blue-500 cursor-pointer accent-blue-500"
-            aria-label="Toggle 24-hour room preservation"
-            onClick={(e) => e.stopPropagation()}
-          />
+
+          <div className="grid grid-cols-2 gap-2">
+            {/* Ephemeral Option (Default) */}
+            <button
+              type="button"
+              onClick={() => setKeep24h(false)}
+              className={`p-3 rounded-xl text-left border transition-all ${
+                !keep24h
+                  ? 'ring-2 ring-amber-400/50 bg-amber-500/10 border-amber-400/80'
+                  : 'border-border opacity-70 hover:opacity-100'
+              }`}
+              style={{ background: !keep24h ? 'rgba(245, 158, 11, 0.08)' : 'var(--surface)' }}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                  <Zap size={14} /> Ephemeral
+                </span>
+                {!keep24h && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300">
+                    DEFAULT
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+                Auto-purged when empty or after 1h idle
+              </p>
+            </button>
+
+            {/* 24-Hour Option (Creator Feature) */}
+            <button
+              type="button"
+              onClick={() => setKeep24h(true)}
+              className={`p-3 rounded-xl text-left border transition-all ${
+                keep24h
+                  ? 'ring-2 ring-accent/50 bg-sky-500/10 border-accent/80'
+                  : 'border-border opacity-70 hover:opacity-100'
+              }`}
+              style={{ background: keep24h ? 'rgba(96, 165, 250, 0.08)' : 'var(--surface)' }}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-accent">
+                  <Clock size={14} /> 24h Safe
+                </span>
+                {keep24h && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-accent/20 text-sky-300">
+                    SELECTED
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+                Preserved for 24h even after users leave
+              </p>
+            </button>
+          </div>
         </div>
 
         {/* Create room button */}
