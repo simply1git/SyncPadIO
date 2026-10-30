@@ -24,8 +24,12 @@ import { SnippetFeed } from './components/SnippetFeed';
 import { FileManager } from './components/FileManager';
 import { ShareModal } from './components/ShareModal';
 import { PreviewModal } from './components/PreviewModal';
+import { BiometricModal } from './components/BiometricModal';
+import { LockScreen } from './components/LockScreen';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Snippet, FileData, UploadItem, ConnectionStatusType } from './types';
+import { WebRTCTransferService } from './utils/webrtcTransfer';
+import { hasRoomPasskey, isRoomLocked } from './utils/webAuthn';
+import { Snippet, FileData, UploadItem, ConnectionStatusType, P2PTransfer } from './types';
 
 const STORAGE_KEY_USER_ID = 'syncpad_user_id';
 const STORAGE_KEY_USER_NAME = 'syncpad_user_name';
@@ -54,20 +58,35 @@ export default function App() {
   const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [files, setFiles] = useState<FileData[]>([]);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [p2pTransfers, setP2pTransfers] = useState<P2PTransfer[]>([]);
 
   // ── UI / Preferences ────────────────────────────────────────────────────
   const [userName, setUserName] = useState(() => localStorage.getItem(STORAGE_KEY_USER_NAME) || '');
   const [darkMode, setDarkMode] = useState(true);
   const [showShare, setShowShare] = useState(false);
+  const [showBiometricModal, setShowBiometricModal] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [showNameModal, setShowNameModal] = useState(false);
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const p2pServiceRef = useRef<WebRTCTransferService | null>(null);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
   const isSyncingRef = useRef(false);
   const [myUserId] = useState(getPersistentUserId);
+
+  // ── Initialize P2P Service ──────────────────────────────────────────────
+  useEffect(() => {
+    const service = new WebRTCTransferService(myUserId);
+    p2pServiceRef.current = service;
+    const unsub = service.subscribe(setP2pTransfers);
+    return () => {
+      unsub();
+      service.cleanup();
+    };
+  }, [myUserId]);
 
   // ── Dark/Light Mode Theme Toggle ────────────────────────────────────────
   useEffect(() => {
@@ -194,6 +213,11 @@ export default function App() {
 
     // Save room record offline for zero-latency load next time
     await saveRoomOffline(cleanId, resolvedKey);
+
+    // Check if room is locked via Biometric Passkey on this device
+    if (hasRoomPasskey(cleanId) && isRoomLocked(cleanId)) {
+      setIsLocked(true);
+    }
 
     // 2. Local-First Hydration: Immediately load cached snippets & files from IndexedDB
     const [cachedSnips, cachedFls] = await Promise.all([
@@ -331,6 +355,11 @@ export default function App() {
           cleanupTimerRef.current = setTimeout(() => deleteRoom(), 10 * 60 * 1000);
         }
       })
+      .on('broadcast', { event: 'webrtc-signal' }, (res) => {
+        if (p2pServiceRef.current && res.payload) {
+          p2pServiceRef.current.handleSignal(res.payload);
+        }
+      })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           setConnStatus('connected');
@@ -341,6 +370,15 @@ export default function App() {
       });
 
       channelRef.current = ch;
+      if (p2pServiceRef.current) {
+        p2pServiceRef.current.setSignalSender((signal) => {
+          ch.send({
+            type: 'broadcast',
+            event: 'webrtc-signal',
+            payload: signal,
+          });
+        });
+      }
       setConnStatus('connecting');
       setIsJoined(true);
 
@@ -397,12 +435,17 @@ export default function App() {
       await supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
+    if (p2pServiceRef.current) {
+      p2pServiceRef.current.cleanup();
+    }
+    setIsLocked(false);
     if (roomId) clearRoomOffline(roomId);
     setIsJoined(false);
     setRoomId('');
     setEncryptionKey(undefined);
     setSnippets([]);
     setFiles([]);
+    setP2pTransfers([]);
     setConnStatus('connecting');
     window.history.replaceState({}, '', window.location.pathname);
     toast('Left session', { icon: '👋' });
@@ -556,6 +599,26 @@ export default function App() {
     toast.success('File deleted');
   };
 
+  const handleSendP2PFile = async (file: File) => {
+    if (!p2pServiceRef.current) return;
+    if (userCount <= 1) {
+      toast('Connect another peer in this room to stream directly', { icon: '⚡' });
+      return;
+    }
+    toast(`Streaming ${file.name} directly via P2P…`, { icon: '⚡' });
+    await p2pServiceRef.current.sendFile(file);
+    updateLastActivity(true);
+  };
+
+  const handleCancelP2PTransfer = (transferId: string) => {
+    p2pServiceRef.current?.cancelTransfer(transferId);
+    toast.error('P2P transfer cancelled');
+  };
+
+  const handleClearP2PTransfer = (transferId: string) => {
+    p2pServiceRef.current?.clearTransfer(transferId);
+  };
+
   // ══════════════════════════════════════════════════════════════════════════
   // RENDER VIEW
   // ══════════════════════════════════════════════════════════════════════════
@@ -590,9 +653,11 @@ export default function App() {
             connStatus={connStatus}
             darkMode={darkMode}
             hasEncryptionKey={Boolean(encryptionKey)}
+            hasPasskey={hasRoomPasskey(roomId)}
             onToggleDarkMode={() => setDarkMode(v => !v)}
             onOpenNameModal={() => setShowNameModal(true)}
             onOpenShareModal={() => setShowShare(true)}
+            onOpenBiometricModal={() => setShowBiometricModal(true)}
             onLeaveRoom={handleLeaveRoom}
           />
 
@@ -631,9 +696,14 @@ export default function App() {
               <FileManager
                 files={files}
                 uploads={uploads}
+                p2pTransfers={p2pTransfers}
+                userCount={userCount}
                 roomId={roomId}
                 encryptionKey={encryptionKey}
                 onUploadFiles={handleUploadFiles}
+                onSendP2PFile={handleSendP2PFile}
+                onCancelP2PTransfer={handleCancelP2PTransfer}
+                onClearP2PTransfer={handleClearP2PTransfer}
                 onCancelUpload={handleCancelUpload}
                 onDeleteFile={handleDeleteFile}
                 onPreviewFile={setPreviewFile}
@@ -649,6 +719,23 @@ export default function App() {
               userCount={userCount}
               encryptionKey={encryptionKey}
               onClose={() => setShowShare(false)}
+            />
+          )}
+
+          {showBiometricModal && (
+            <BiometricModal
+              roomId={roomId}
+              isOpen={showBiometricModal}
+              onClose={() => setShowBiometricModal(false)}
+              onLockSession={() => setIsLocked(true)}
+            />
+          )}
+
+          {isLocked && (
+            <LockScreen
+              roomId={roomId}
+              onUnlocked={() => setIsLocked(false)}
+              onLeaveRoom={handleLeaveRoom}
             />
           )}
 

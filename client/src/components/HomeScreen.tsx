@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, ArrowRight, Zap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, ArrowRight, Zap, Fingerprint } from 'lucide-react';
 import { extractRoomCode } from '../utils/helpers';
 
 interface Props {
@@ -22,6 +22,23 @@ export function HomeScreen({
   const [joinInput, setJoinInput] = useState('');
   const [customRoomCode, setCustomRoomCode] = useState('');
   const [showCustomCodeInput, setShowCustomCodeInput] = useState(false);
+  const [passkeyRooms, setPasskeyRooms] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const rooms: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('syncpad_passkey_')) {
+          rooms.push(k.replace('syncpad_passkey_', ''));
+        }
+      }
+      setPasskeyRooms(rooms);
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
 
   const handleJoinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,6 +168,34 @@ export function HomeScreen({
             <ArrowRight size={20} />
           </button>
         </form>
+
+        {/* Passkey-Secured Rooms on this Device */}
+        {passkeyRooms.length > 0 && (
+          <div className="mt-5 p-3 rounded-xl" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-1.5 text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+              <Fingerprint size={14} className="text-emerald-400" />
+              <span>Biometric-Protected Sessions</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {passkeyRooms.map((code) => (
+                <button
+                  key={code}
+                  onClick={() => onJoinRoom(code)}
+                  className="font-mono text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all hover:scale-105"
+                  style={{
+                    background: 'rgba(34, 197, 94, 0.1)',
+                    border: '1px solid rgba(34, 197, 94, 0.25)',
+                    color: '#22c55e',
+                  }}
+                  title={`Enter room ${code} with biometric protection`}
+                >
+                  <Fingerprint size={12} />
+                  <span>{code}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

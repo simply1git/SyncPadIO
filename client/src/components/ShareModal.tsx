@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Copy, Check, Link, ShieldCheck } from 'lucide-react';
+import { X, Copy, Check, Link, ShieldCheck, Globe } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { generateShareUrl } from '../utils/crypto';
@@ -14,6 +14,7 @@ interface Props {
 export function ShareModal({ roomId, userCount, encryptionKey, onClose }: Props) {
   const [copied, setCopied] = useState(false);
   const url = generateShareUrl(roomId, encryptionKey);
+  const currentHost = typeof window !== 'undefined' ? window.location.host : 'syncpad.io';
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -114,9 +115,12 @@ export function ShareModal({ roomId, userCount, encryptionKey, onClose }: Props)
           </div>
         </div>
 
-        <p className="text-xs text-center" style={{ color: 'var(--text-faint)' }}>
-          Ephemeral room auto-deletes after 1 hour of inactivity
-        </p>
+        <div className="flex items-center justify-between text-xs pt-1 pb-1" style={{ color: 'var(--text-faint)' }}>
+          <span className="flex items-center gap-1">
+            <Globe size={11} /> {currentHost}
+          </span>
+          <span>Auto-deletes after 1h idle</span>
+        </div>
       </div>
     </div>
   );

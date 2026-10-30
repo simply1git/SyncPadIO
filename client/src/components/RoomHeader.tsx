@@ -1,4 +1,4 @@
-import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff } from 'lucide-react';
+import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatusType } from '../types';
 
@@ -9,9 +9,11 @@ interface Props {
   connStatus: ConnectionStatusType;
   darkMode: boolean;
   hasEncryptionKey: boolean;
+  hasPasskey?: boolean;
   onToggleDarkMode: () => void;
   onOpenNameModal: () => void;
   onOpenShareModal: () => void;
+  onOpenBiometricModal: () => void;
   onLeaveRoom: () => void;
 }
 
@@ -22,9 +24,11 @@ export function RoomHeader({
   connStatus,
   darkMode,
   hasEncryptionKey,
+  hasPasskey,
   onToggleDarkMode,
   onOpenNameModal,
   onOpenShareModal,
+  onOpenBiometricModal,
   onLeaveRoom,
 }: Props) {
   const copyRoomCode = () => {
@@ -120,6 +124,21 @@ export function RoomHeader({
           aria-label="Share room"
         >
           <Share2 size={14} /> Share
+        </button>
+
+        <button
+          onClick={onOpenBiometricModal}
+          className="btn-ghost px-2.5 py-1.5 text-xs flex items-center gap-1.5 rounded-lg"
+          style={{
+            color: hasPasskey ? '#22c55e' : 'var(--text-muted)',
+            background: hasPasskey ? 'rgba(34,197,94,0.1)' : 'transparent',
+            border: hasPasskey ? '1px solid rgba(34,197,94,0.25)' : '1px solid transparent',
+          }}
+          title={hasPasskey ? 'Biometric Passkey active (Click to lock or manage)' : 'Set up Biometric Passkey lock'}
+          aria-label="Biometric security settings"
+        >
+          <Fingerprint size={15} />
+          <span className="hidden md:inline">{hasPasskey ? 'Protected' : 'Passkey'}</span>
         </button>
 
         <button
