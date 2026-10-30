@@ -16,6 +16,12 @@ jobs:
 
       - name: Ping Supabase Database & REST API
         run: |
-          curl -f -s -o /dev/null -w "Supabase REST API HTTP: %{http_code}\n" \
-            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4am1hYWprdHFlaG5hZXJnbmt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MDU0MTksImV4cCI6MjA5MzI4MTQxOX0.ZQq6ajWmjHTnQRu4347FN_Vy5B0-n5RVsG3ms0W9Nhg" \
-            "https://fxjmaajktqehnaergnky.supabase.co/rest/v1/rooms?select=id&limit=1" || echo "Supabase ping warning"
+          SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}"
+          SUPABASE_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}"
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
+            curl -f -s -o /dev/null -w "Supabase REST API HTTP: %{http_code}\n" \
+              -H "apikey: $SUPABASE_KEY" \
+              "$SUPABASE_URL/rest/v1/rooms?select=id&limit=1" || echo "Supabase ping warning"
+          else
+            echo "Supabase secrets not set; skipping ping."
+          fi

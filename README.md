@@ -89,11 +89,11 @@ graph TD
         DC["WebRTC DataChannel (SCTP/DTLS)<br/>• 64 KiB Binary Chunks<br/>• Zero Cloud Storage"]
     end
 
-    A <-->|Realtime Presence & WebRTC Signaling| RT
-    B <-->|Realtime Presence & WebRTC Signaling| RT
-    A -->|Encrypted Cloud Upload| ST
-    B -->|Download & Decrypt| ST
-    A <-->|Direct P2P Stream (Unlimited Size)| DC
+    A <-->|"Realtime Presence & WebRTC Signaling"| RT
+    B <-->|"Realtime Presence & WebRTC Signaling"| RT
+    A -->|"Encrypted Cloud Upload"| ST
+    B -->|"Download & Decrypt"| ST
+    A <-->|"Direct P2P Stream (Unlimited Size)"| DC
     DC <--> B
     V -.->|Serves Static Bundle| A
     V -.->|Serves Static Bundle| B
@@ -142,12 +142,12 @@ SyncPadIO supports two independent file transmission pipelines depending on your
 ```mermaid
 flowchart LR
     subgraph Mode1["Direct P2P Stream (WebRTC)"]
-        S1["Sender"] -->|Direct 64 KiB Chunks| R1["Receiver"]
+        S1["Sender"] -->|"Direct 64 KiB Chunks"| R1["Receiver"]
         style Mode1 fill:#0f172a,stroke:#38bdf8,stroke-width:2px
     end
 
     subgraph Mode2["Encrypted Cloud Upload (Supabase)"]
-        S2["Sender"] -->|Encrypted Upload| CL[("Cloud Storage")] -->|Encrypted Download| R2["Receiver"]
+        S2["Sender"] -->|"Encrypted Upload"| CL[("Cloud Storage")] -->|"Encrypted Download"| R2["Receiver"]
         style Mode2 fill:#0f172a,stroke:#f59e0b,stroke-width:2px
     end
 ```
