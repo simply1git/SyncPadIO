@@ -86,10 +86,18 @@ export function HomeScreen({
             placeholder="Enter your name"
             value={userName}
             onChange={e => onUpdateUserName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (!isJoining) {
+                  onCreateRoom(keep24h);
+                }
+              }
+            }}
             maxLength={30}
           />
           <p className="text-[11px] mt-1" style={{ color: 'var(--text-faint)' }}>
-            Visible to peers in active rooms
+            Visible to peers in active rooms · Press Enter to create session
           </p>
         </div>
 

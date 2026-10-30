@@ -189,11 +189,24 @@ export default function App() {
   }, [roomId, flushPendingOfflineSnippets]);
 
   // ── Save User Display Name ──────────────────────────────────────────────
-  const handleSaveUserName = (name: string) => {
+  const handleUpdateUserName = (name: string) => {
+    setUserName(name);
+    try {
+      const trimmed = name.trim();
+      if (trimmed) {
+        localStorage.setItem(STORAGE_KEY_USER_NAME, trimmed);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_USER_NAME);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleSaveModalUserName = (name: string) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    try { localStorage.setItem(STORAGE_KEY_USER_NAME, trimmed); } catch { /* ignore */ }
-    setUserName(trimmed);
+    if (trimmed) {
+      try { localStorage.setItem(STORAGE_KEY_USER_NAME, trimmed); } catch { /* ignore */ }
+      setUserName(trimmed);
+    }
     setShowNameModal(false);
   };
 
@@ -461,7 +474,7 @@ export default function App() {
       if (clean) {
         if (!userName.trim()) {
           const fallbackGuest = 'Guest-' + Math.random().toString(36).slice(2, 6).toUpperCase();
-          handleSaveUserName(fallbackGuest);
+          handleUpdateUserName(fallbackGuest);
         }
         joinRoomRealtime(clean);
       }
@@ -471,7 +484,7 @@ export default function App() {
   // ── Session Creation Handlers ───────────────────────────────────────────
   const handleCreateNewSession = async (keep24h = false) => {
     if (!userName.trim()) {
-      handleSaveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
+      handleUpdateUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
     const newRoomId = generateRoomId();
     try { localStorage.setItem('syncpad_creator_' + newRoomId, myUserId); } catch { /* ignore */ }
@@ -481,7 +494,7 @@ export default function App() {
 
   const handleCreateCustomSession = async (customCode: string, keep24h = false) => {
     if (!userName.trim()) {
-      handleSaveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
+      handleUpdateUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
     try { localStorage.setItem('syncpad_creator_' + customCode, myUserId); } catch { /* ignore */ }
     setIsCreator(true);
@@ -713,7 +726,7 @@ export default function App() {
       {!isJoined ? (
         <HomeScreen
           userName={userName}
-          onUpdateUserName={handleSaveUserName}
+          onUpdateUserName={handleUpdateUserName}
           onCreateRoom={handleCreateNewSession}
           onCreateCustomRoom={handleCreateCustomSession}
           onJoinRoom={(code) => joinRoomRealtime(code)}
@@ -858,29 +871,29 @@ export default function App() {
                 </p>
                 <input
                   type="text"
-                  className="input-dark w-full px-4 py-3 mb-4 text-base"
+                  className="input-dark w-full px-3 py-2 mb-3 text-sm"
                   placeholder="Your display name"
                   defaultValue={userName}
                   maxLength={30}
                   autoFocus
                   onKeyDown={e => {
-                    if (e.key === 'Enter') handleSaveUserName((e.target as HTMLInputElement).value);
+                    if (e.key === 'Enter') handleSaveModalUserName((e.target as HTMLInputElement).value);
                   }}
                   id="modal-name-input"
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowNameModal(false)}
-                    className="btn-ghost flex-1 py-2 text-sm"
+                    className="btn-ghost flex-1 py-1.5 text-xs"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={() => {
                       const input = document.getElementById('modal-name-input') as HTMLInputElement;
-                      if (input) handleSaveUserName(input.value);
+                      if (input) handleSaveModalUserName(input.value);
                     }}
-                    className="btn-accent flex-1 py-2 text-sm font-semibold"
+                    className="btn-accent flex-1 py-1.5 text-xs font-semibold"
                   >
                     Save
                   </button>
