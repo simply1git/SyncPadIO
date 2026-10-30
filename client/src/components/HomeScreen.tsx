@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowRight, Zap, Fingerprint } from 'lucide-react';
+import { Plus, ArrowRight, Zap, Fingerprint, Clock } from 'lucide-react';
 import { extractRoomCode } from '../utils/helpers';
 
 interface Props {
   userName: string;
   onUpdateUserName: (name: string) => void;
-  onCreateRoom: () => void;
-  onCreateCustomRoom: (code: string) => void;
+  onCreateRoom: (keep24h: boolean) => void;
+  onCreateCustomRoom: (code: string, keep24h: boolean) => void;
   onJoinRoom: (code: string) => void;
   isJoining: boolean;
 }
@@ -22,6 +22,7 @@ export function HomeScreen({
   const [joinInput, setJoinInput] = useState('');
   const [customRoomCode, setCustomRoomCode] = useState('');
   const [showCustomCodeInput, setShowCustomCodeInput] = useState(false);
+  const [keep24h, setKeep24h] = useState(false);
   const [passkeyRooms, setPasskeyRooms] = useState<string[]>([]);
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export function HomeScreen({
     e.preventDefault();
     const clean = extractRoomCode(customRoomCode);
     if (clean) {
-      onCreateCustomRoom(clean);
+      onCreateCustomRoom(clean, keep24h);
       setCustomRoomCode('');
     }
   };
@@ -92,9 +93,57 @@ export function HomeScreen({
           </p>
         </div>
 
+        {/* Expiration Mode Toggle (Creator Choice) */}
+        <div
+          className="mb-4 p-3 rounded-xl flex items-center justify-between cursor-pointer transition-colors"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+          onClick={() => setKeep24h(v => !v)}
+        >
+          <div className="flex items-center gap-2.5">
+            <div
+              className="p-1.5 rounded-lg flex-shrink-0"
+              style={{
+                background: keep24h ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.05)',
+                color: keep24h ? 'var(--accent)' : 'var(--text-muted)'
+              }}
+            >
+              <Clock size={16} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                  {keep24h ? '24-Hour Safe Room' : 'Ephemeral (Default)'}
+                </span>
+                <span
+                  className="text-[10px] px-1.5 py-0.2 rounded font-semibold uppercase tracking-wider"
+                  style={{
+                    background: keep24h ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.08)',
+                    color: keep24h ? 'var(--accent)' : 'var(--text-muted)',
+                  }}
+                >
+                  {keep24h ? '24h TTL' : 'Auto-purge'}
+                </span>
+              </div>
+              <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                {keep24h
+                  ? 'Preserved for 24 hours even after all users leave'
+                  : 'Expires on inactivity or when all users leave'}
+              </p>
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={keep24h}
+            onChange={(e) => setKeep24h(e.target.checked)}
+            className="w-4 h-4 rounded text-blue-500 cursor-pointer accent-blue-500"
+            aria-label="Toggle 24-hour room preservation"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+
         {/* Create room button */}
         <button
-          onClick={onCreateRoom}
+          onClick={() => onCreateRoom(keep24h)}
           disabled={isJoining}
           className="btn-accent w-full py-3.5 text-base font-semibold flex items-center justify-center gap-2 mb-3"
           id="create-room-btn"

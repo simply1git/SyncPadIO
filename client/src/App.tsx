@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Toaster, toast } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
-import { useRoomLifecycle, TWENTY_FOUR_HOURS_MS } from './hooks/useRoomLifecycle';
+import { useRoomLifecycle, TWENTY_FOUR_HOURS_MS, DEFAULT_EPHEMERAL_TIMEOUT_MS } from './hooks/useRoomLifecycle';
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, getRoomKeyFromHash, setRoomKeyToHash } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
@@ -52,6 +52,8 @@ export default function App() {
   const [connStatus, setConnStatus] = useState<ConnectionStatusType>('connecting');
   const [userCount, setUserCount] = useState(1);
   const [activeTab, setActiveTab] = useState<'text' | 'files'>('text');
+  const [keepAlive24h, setKeepAlive24h] = useState(false);
+  const [isCreator, setIsCreator] = useState(false);
   const [, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // ── Content State ───────────────────────────────────────────────────────
@@ -73,6 +75,7 @@ export default function App() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const p2pServiceRef = useRef<WebRTCTransferService | null>(null);
   const abortMapRef = useRef<Map<string, () => void>>(new Map());
+  const desertionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSyncingRef = useRef(false);
   const [myUserId] = useState(getPersistentUserId);
 
@@ -113,7 +116,7 @@ export default function App() {
     roomId,
     userId: myUserId,
     onRoomDeleted,
-    inactivityTimeoutMs: TWENTY_FOUR_HOURS_MS,
+    inactivityTimeoutMs: keepAlive24h ? TWENTY_FOUR_HOURS_MS : DEFAULT_EPHEMERAL_TIMEOUT_MS,
   });
 
   // ── Flush Pending Offline Snippets ──────────────────────────────────────
@@ -193,7 +196,7 @@ export default function App() {
   };
 
   // ── Join Room Realtime with Local-First IndexedDB Hydration ─────────────
-  const joinRoomRealtime = useCallback(async (id: string, customKey?: string) => {
+  const joinRoomRealtime = useCallback(async (id: string, customKey?: string, initialKeep24h?: boolean) => {
     const cleanId = extractRoomCode(id);
     if (!cleanId) {
       toast.error('Invalid room code');
@@ -201,6 +204,14 @@ export default function App() {
     }
 
     setIsJoining(true);
+
+    // Identify if current user is the room creator
+    try {
+      const creatorId = localStorage.getItem('syncpad_creator_' + cleanId);
+      setIsCreator(creatorId === myUserId);
+    } catch {
+      setIsCreator(false);
+    }
 
     // 1. Resolve encryption key (from param or URL hash if explicitly provided)
     const hashKey = getRoomKeyFromHash();
@@ -245,7 +256,7 @@ export default function App() {
 
       const { data: existingRoom, error: fetchErr } = await supabase
         .from('rooms')
-        .select('id, last_activity')
+        .select('id, last_activity, status')
         .eq('id', cleanId)
         .maybeSingle();
 
@@ -253,25 +264,30 @@ export default function App() {
         console.warn('Room check notice:', fetchErr);
       }
 
-      // Safe 24-Hour Expiration Check:
-      // If room is older than 24 hours of inactivity, clean up old records safely and start fresh
-      const isExpired = existingRoom?.last_activity && (now - existingRoom.last_activity > TWENTY_FOUR_HOURS_MS);
+      // Determine expiration mode: default ephemeral vs creator-set 24h
+      const is24h = existingRoom?.status === 'keep-24h' || (!existingRoom && initialKeep24h === true);
+      setKeepAlive24h(is24h);
+
+      const ttlCutoff = is24h ? TWENTY_FOUR_HOURS_MS : DEFAULT_EPHEMERAL_TIMEOUT_MS;
+      const isExpired = existingRoom?.last_activity && (now - existingRoom.last_activity > ttlCutoff);
 
       if (isExpired) {
         await deleteRoom();
+        const initialStatus = is24h ? 'keep-24h' : 'active';
         await supabase.from('rooms').upsert({
           id: cleanId,
           created_at: now,
           last_activity: now,
-          status: 'active'
+          status: initialStatus
         }, { onConflict: 'id' });
-        toast('Previous 24-hour session expired. Fresh session started.', { icon: '⏳' });
+        toast(is24h ? 'Previous 24-hour session expired. Fresh session started.' : 'Previous session expired. Fresh session started.', { icon: '⏳' });
       } else if (!existingRoom) {
+        const initialStatus = initialKeep24h ? 'keep-24h' : 'active';
         const { error: upsertError } = await supabase.from('rooms').upsert({
           id: cleanId,
           created_at: now,
           last_activity: now,
-          status: 'active'
+          status: initialStatus
         }, { onConflict: 'id' });
 
         if (upsertError) {
@@ -287,7 +303,7 @@ export default function App() {
           return;
         }
       } else {
-        await supabase.from('rooms').update({ last_activity: now, status: 'active' }).eq('id', cleanId);
+        await supabase.from('rooms').update({ last_activity: now }).eq('id', cleanId);
       }
 
       if (channelRef.current) await supabase.removeChannel(channelRef.current);
@@ -359,18 +375,38 @@ export default function App() {
         const state = ch.presenceState();
         const count = Object.values(state).reduce((a, v) => a + v.length, 0);
         setUserCount(Math.max(1, count));
+        // If users are active in room, cancel desertion cleanup
+        if (desertionTimerRef.current) {
+          clearTimeout(desertionTimerRef.current);
+          desertionTimerRef.current = null;
+        }
       })
       .on('presence', { event: 'leave' }, () => {
         const state = ch.presenceState();
         const count = Object.values(state).reduce((a, v) => a + v.length, 0);
         setUserCount(Math.max(1, count));
-        // Safe 24-Hour Expiration:
-        // Do NOT delete the room on temporary absence!
-        // Instead, stamp last_activity so the room remains securely accessible for 24 hours.
         if (count === 0) {
-          updateLastActivity(true);
+          if (is24h) {
+            // Creator set 24h retention: update last_activity and keep alive
+            updateLastActivity(true);
+          } else {
+            // Default Ephemeral Room: all users left or closed.
+            // Start 5-minute desertion grace countdown before safely purging
+            if (desertionTimerRef.current) clearTimeout(desertionTimerRef.current);
+            desertionTimerRef.current = setTimeout(() => {
+              deleteRoom();
+            }, 5 * 60 * 1000);
+          }
         }
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${cleanId}` },
+        (p) => {
+          const updated = p.new as { status?: string };
+          if (updated?.status) {
+            setKeepAlive24h(updated.status === 'keep-24h');
+          }
+        }
+      )
       .on('broadcast', { event: 'webrtc-signal' }, (res) => {
         if (p2pServiceRef.current && res.payload) {
           p2pServiceRef.current.handleSignal(res.payload);
@@ -431,22 +467,41 @@ export default function App() {
   }, [joinRoomRealtime, userName]);
 
   // ── Session Creation Handlers ───────────────────────────────────────────
-  const handleCreateNewSession = async () => {
+  const handleCreateNewSession = async (keep24h = false) => {
     if (!userName.trim()) {
       handleSaveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
     const newRoomId = generateRoomId();
-    joinRoomRealtime(newRoomId);
+    try { localStorage.setItem('syncpad_creator_' + newRoomId, myUserId); } catch { /* ignore */ }
+    setIsCreator(true);
+    joinRoomRealtime(newRoomId, undefined, keep24h);
   };
 
-  const handleCreateCustomSession = async (customCode: string) => {
+  const handleCreateCustomSession = async (customCode: string, keep24h = false) => {
     if (!userName.trim()) {
       handleSaveUserName('Host-' + Math.random().toString(36).slice(2, 6).toUpperCase());
     }
-    joinRoomRealtime(customCode);
+    try { localStorage.setItem('syncpad_creator_' + customCode, myUserId); } catch { /* ignore */ }
+    setIsCreator(true);
+    joinRoomRealtime(customCode, undefined, keep24h);
+  };
+
+  const handleToggle24hRetention = async (enabled: boolean) => {
+    if (!roomId) return;
+    setKeepAlive24h(enabled);
+    try {
+      await supabase.from('rooms').update({ status: enabled ? 'keep-24h' : 'active' }).eq('id', roomId);
+      toast.success(enabled ? 'Room set to 24-hour persistence' : 'Room set to ephemeral (expires when empty)');
+    } catch (e) {
+      console.warn('Failed to update room retention:', e);
+    }
   };
 
   const handleLeaveRoom = async () => {
+    if (desertionTimerRef.current) {
+      clearTimeout(desertionTimerRef.current);
+      desertionTimerRef.current = null;
+    }
     if (channelRef.current) {
       await supabase.removeChannel(channelRef.current);
       channelRef.current = null;
@@ -455,6 +510,8 @@ export default function App() {
       p2pServiceRef.current.cleanup();
     }
     setIsLocked(false);
+    setIsCreator(false);
+    setKeepAlive24h(false);
     if (roomId) clearRoomOffline(roomId);
     setIsJoined(false);
     setRoomId('');
@@ -670,6 +727,7 @@ export default function App() {
             darkMode={darkMode}
             hasEncryptionKey={Boolean(encryptionKey)}
             hasPasskey={hasRoomPasskey(roomId)}
+            keepAlive24h={keepAlive24h}
             onToggleDarkMode={() => setDarkMode(v => !v)}
             onOpenNameModal={() => setShowNameModal(true)}
             onOpenShareModal={() => setShowShare(true)}
@@ -734,6 +792,9 @@ export default function App() {
               roomId={roomId}
               userCount={userCount}
               encryptionKey={encryptionKey}
+              isCreator={isCreator}
+              keepAlive24h={keepAlive24h}
+              onToggle24h={handleToggle24hRetention}
               onClose={() => setShowShare(false)}
             />
           )}

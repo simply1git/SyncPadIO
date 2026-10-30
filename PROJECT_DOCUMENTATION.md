@@ -23,7 +23,7 @@
 
 **SyncPadIO** is a modern, ephemeral collaboration and sharing platform prioritizing privacy, simplicity, and zero friction.
 
-- ✅ **Safe 24-Hour Ephemeral Sessions**: Sessions stay active during collaboration and remain preserved for 24 hours of inactivity across device sleep and reboots.
+- ✅ **Flexible Ephemeral Lifecycle**: Rooms are ephemeral by default (auto-purged when all users leave or after 1h idle). Room creators can choose 24-hour persistence for safe collaboration across timezones and reboots.
 - ✅ **Zero-Knowledge E2EE**: Snippets and files are encrypted client-side using AES-256-GCM. The encryption key resides in the URL hash (`#k=...`) or PBKDF2 room derivation and is never sent to the server.
 - ✅ **Real-Time Presence Tracking**: See live peer counts and synchronized updates with sub-100ms latency via Supabase Realtime WebSockets.
 - ✅ **Syntax Highlighting & Markdown**: Real-time code detection for 50+ programming languages with Prism highlighting and live Markdown rendering.
@@ -34,12 +34,12 @@
 
 ## ✨ Key Features
 
-### 1. Ephemeral Sessions & Safe Expiration
+### 1. Ephemeral Sessions & Creator-Controlled Expiration
 - Join or create rooms instantly using 6-character room codes or custom names.
-- Safe 24-Hour Expiration:
-  - Rooms remain active during use and are preserved for **24 hours** after the last activity.
-  - Temporary disconnections or tab closures do not destroy the session; users or peers can rejoin anytime within 24 hours.
-  - Safe 24-hour expiration cascades foreign keys to purge snippets, files, and Supabase Storage objects cleanly.
+- Expiration Policies:
+  - **Default Ephemeral Mode:** The room is designed for real-time temporary exchange. It auto-purges after 1 hour of inactivity or 5 minutes after all users have left or closed their browsers.
+  - **Creator-Configured 24-Hour Mode:** When toggled by the room creator, the session is preserved for **24 hours** from the last active interaction, allowing peers to disconnect, reboot, or rejoin across time zones without losing data.
+  - When expired, cascading database foreign keys delete associated snippets, files, and Supabase Storage objects cleanly.
   - When manually exited, local state and IndexedDB outbox cache are cleared immediately.
 
 ### 2. High-Performance File Handling

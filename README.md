@@ -25,8 +25,9 @@ SyncPadIO is an ephemeral collaboration workspace built for developers and teams
   - Up to 50MB per file with real-time XHR upload progress and abort support.
   - Multi-file selection with one-click Zip archive packaging (`JSZip`) and sequential downloads.
   - In-browser safe preview for images, video, and sandboxed PDF documents.
-- ⏱️ **Safe 24-Hour Ephemeral Lifecycle:**
-  - Rooms are safely preserved for 24 hours of inactivity across device sleep and reboots.
+- ⏱️ **Configurable Ephemeral Lifecycle:**
+  - By default, sessions auto-purge on inactivity (1h) or when all users leave/close.
+  - Room creators can optionally enable 24-hour retention to preserve rooms across desertion.
   - Automatic 4-hour GitHub Actions keep-alive pings keep Supabase and Vercel active 24/7/365.
   - Cascading deletes ensure files and snippets in Supabase Storage are purged when expired.
 - 📱 **Progressive Web App (PWA):**

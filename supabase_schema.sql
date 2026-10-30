@@ -141,24 +141,36 @@ create policy "Public Delete Access"
 -- 13. Cleanup Migration
 alter table rooms drop column if exists user_count;
 
--- 14. 24-Hour Safe Automated Cleanup Stored Function
--- Deletes rooms that have had zero activity for 24+ hours (cascades to snippets and files)
-create or replace function cleanup_expired_24h_rooms()
+-- 14. Safe Automated Cleanup Stored Function
+-- Deletes rooms based on creator settings:
+--   - 24-Hour rooms ('keep-24h'): deleted after 24 hours of inactivity
+--   - Default ephemeral rooms: deleted after 1 hour of inactivity
+create or replace function cleanup_expired_rooms()
 returns integer as $$
 declare
   deleted_count integer;
-  cutoff_time bigint;
+  cutoff_24h bigint;
+  cutoff_1h bigint;
 begin
-  -- Cutoff: now minus 24 hours in milliseconds (86,400,000 ms)
-  cutoff_time := (extract(epoch from now()) * 1000) - (24 * 60 * 60 * 1000);
+  cutoff_24h := (extract(epoch from now()) * 1000) - (24 * 60 * 60 * 1000);
+  cutoff_1h := (extract(epoch from now()) * 1000) - (1 * 60 * 60 * 1000);
   
   with deleted as (
     delete from rooms
-    where last_activity < cutoff_time
+    where (status = 'keep-24h' and last_activity < cutoff_24h)
+       or (coalesce(status, 'active') != 'keep-24h' and last_activity < cutoff_1h)
     returning id
   )
   select count(*) into deleted_count from deleted;
   
   return deleted_count;
+end;
+$$ language plpgsql security definer;
+
+-- Backward-compatibility alias
+create or replace function cleanup_expired_24h_rooms()
+returns integer as $$
+begin
+  return cleanup_expired_rooms();
 end;
 $$ language plpgsql security definer;

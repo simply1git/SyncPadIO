@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Copy, Check, Link, ShieldCheck, Globe } from 'lucide-react';
+import { X, Copy, Check, Link, ShieldCheck, Globe, Clock } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { generateShareUrl } from '../utils/crypto';
@@ -8,10 +8,21 @@ interface Props {
   roomId: string;
   userCount: number;
   encryptionKey?: string;
+  isCreator?: boolean;
+  keepAlive24h?: boolean;
+  onToggle24h?: (enabled: boolean) => void;
   onClose: () => void;
 }
 
-export function ShareModal({ roomId, userCount, encryptionKey, onClose }: Props) {
+export function ShareModal({
+  roomId,
+  userCount,
+  encryptionKey,
+  isCreator,
+  keepAlive24h = false,
+  onToggle24h,
+  onClose,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const url = generateShareUrl(roomId, encryptionKey);
   const currentHost = typeof window !== 'undefined' ? window.location.host : 'syncpad.io';
@@ -115,12 +126,42 @@ export function ShareModal({ roomId, userCount, encryptionKey, onClose }: Props)
           </div>
         </div>
 
+        {/* Creator Expiration Control */}
+        {isCreator && onToggle24h && (
+          <div
+            className="mb-4 p-3 rounded-xl flex items-center justify-between cursor-pointer"
+            style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
+            onClick={() => onToggle24h(!keepAlive24h)}
+          >
+            <div className="flex items-center gap-2">
+              <Clock size={15} style={{ color: keepAlive24h ? 'var(--accent)' : 'var(--text-muted)' }} />
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                  {keepAlive24h ? '24-Hour Safe Room' : 'Ephemeral Mode (Default)'}
+                </p>
+                <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  {keepAlive24h
+                    ? 'Room preserved for 24 hours even after all users exit'
+                    : 'Auto-purged when all users leave or after 1 hour idle'}
+                </p>
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={keepAlive24h}
+              onChange={(e) => onToggle24h(e.target.checked)}
+              className="w-4 h-4 rounded text-blue-500 cursor-pointer accent-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
+
         <div className="flex items-center justify-between text-xs pt-1 pb-1" style={{ color: 'var(--text-faint)' }}>
           <span className="flex items-center gap-1">
             <Globe size={11} /> {currentHost}
           </span>
-          <span title="Session stays active as long as you use it, or for 24 hours of inactivity">
-            Preserved for 24h of inactivity
+          <span title={keepAlive24h ? 'Creator set 24h retention' : 'Default ephemeral: expires when empty or 1h idle'}>
+            {keepAlive24h ? 'Preserved for 24h' : 'Auto-purged when empty / 1h idle'}
           </span>
         </div>
       </div>

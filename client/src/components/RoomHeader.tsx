@@ -1,4 +1,4 @@
-import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint, Clock } from 'lucide-react';
+import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint, Clock, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatusType } from '../types';
 
@@ -10,6 +10,7 @@ interface Props {
   darkMode: boolean;
   hasEncryptionKey: boolean;
   hasPasskey?: boolean;
+  keepAlive24h?: boolean;
   onToggleDarkMode: () => void;
   onOpenNameModal: () => void;
   onOpenShareModal: () => void;
@@ -25,6 +26,7 @@ export function RoomHeader({
   darkMode,
   hasEncryptionKey,
   hasPasskey,
+  keepAlive24h = false,
   onToggleDarkMode,
   onOpenNameModal,
   onOpenShareModal,
@@ -110,13 +112,21 @@ export function RoomHeader({
           </span>
         )}
 
-        {/* 24h Safe Expiry badge */}
+        {/* Retention status badge */}
         <span
           className="hidden md:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded"
-          style={{ background: 'rgba(96,165,250,0.12)', color: 'var(--accent)' }}
-          title="Safe 24-hour session — preserved for 24h of inactivity; resets on every action"
+          style={{
+            background: keepAlive24h ? 'rgba(96,165,250,0.12)' : 'rgba(255,255,255,0.06)',
+            color: keepAlive24h ? 'var(--accent)' : 'var(--text-muted)',
+          }}
+          title={
+            keepAlive24h
+              ? 'Creator set 24h retention — preserved for 24h of inactivity'
+              : 'Ephemeral session — auto-deletes when all users leave or after 1h idle'
+          }
         >
-          <Clock size={11} /> 24h Safe
+          {keepAlive24h ? <Clock size={11} /> : <Zap size={11} />}
+          {keepAlive24h ? '24h Safe' : 'Ephemeral'}
         </span>
       </div>
 
