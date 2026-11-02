@@ -16,6 +16,68 @@ export const extractRoomCode = (input: string): string => {
 };
 
 /**
+ * Parses QR code content or pasted room strings.
+ * Extracts normalized room code (up to 12 alphanumeric characters) and optional E2EE encryption key (#k=...).
+ */
+export function parseQrCodeData(input: string): { roomCode: string; encryptionKey?: string } {
+  if (!input) return { roomCode: '' };
+  const trimmed = input.trim();
+
+  let roomCode = '';
+  let encryptionKey: string | undefined = undefined;
+
+  // 1. Try URL parsing if input looks like a URL or query string
+  try {
+    const urlString = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+      ? trimmed
+      : trimmed.startsWith('/') || trimmed.startsWith('?')
+      ? `https://syncpad.local${trimmed}`
+      : `https://syncpad.local/?room=${trimmed}`;
+
+    const parsed = new URL(urlString);
+    const roomParam = parsed.searchParams.get('room');
+    if (roomParam) {
+      roomCode = roomParam.toUpperCase().slice(0, 12);
+    }
+
+    // Check URL hash for encryption key: #k=... or #...
+    if (parsed.hash) {
+      const hashStr = parsed.hash.replace(/^#/, '');
+      const kMatch = hashStr.match(/(?:^|&)k=([^&]+)/);
+      if (kMatch && kMatch[1]) {
+        encryptionKey = decodeURIComponent(kMatch[1]);
+      } else if (hashStr.startsWith('k=')) {
+        encryptionKey = decodeURIComponent(hashStr.slice(2));
+      }
+    }
+  } catch {
+    // Ignore URL parse errors
+  }
+
+  // 2. Fallback regex extraction if roomCode was not resolved via URL
+  if (!roomCode) {
+    if (trimmed.includes('room=')) {
+      const match = trimmed.match(/[?&]room=([A-Za-z0-9]+)/i);
+      if (match && match[1]) {
+        roomCode = match[1].toUpperCase().slice(0, 12);
+      }
+    } else {
+      roomCode = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    }
+  }
+
+  // Fallback check for hash fragment if key was not parsed
+  if (!encryptionKey && trimmed.includes('#k=')) {
+    const parts = trimmed.split('#k=');
+    if (parts[1]) {
+      encryptionKey = decodeURIComponent(parts[1].split('&')[0]);
+    }
+  }
+
+  return { roomCode, encryptionKey };
+}
+
+/**
  * Format file size in human-readable format
  */
 export function formatFileSize(bytes: number): string {

@@ -296,3 +296,26 @@ body {
 
 /* ── Tooltip ─────────────────────────────────────────────────────────────── */
 [title] { cursor: pointer; }
+
+
+/* ── QR Scanner Camera & Viewport Styling ────────────────────────────────── */
+#syncpad-qr-scanner-viewport video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+#syncpad-qr-scanner-viewport img {
+  display: none !important;
+}
+
+@keyframes qrLaserScan {
+  0% { top: 8%; opacity: 0.8; }
+  50% { top: 90%; opacity: 1; }
+  100% { top: 8%; opacity: 0.8; }
+}
+
+.qr-scanner-laser {
+  animation: qrLaserScan 2.4s ease-in-out infinite;
+}

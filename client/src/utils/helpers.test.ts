@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractRoomCode,
+  parseQrCodeData,
   formatFileSize,
   timeAgo,
   isValidRoomId,
@@ -66,6 +67,38 @@ describe('SyncPadIO Helper Utilities', () => {
     expect(detectCodeLanguage('SELECT id, name FROM users;')).toBe('sql');
     expect(detectCodeLanguage('import React, { useState } from "react";')).toBe('typescript');
     expect(detectCodeLanguage('npm run build')).toBe('bash');
+  });
+
+  it('parses QR code payloads with room codes and optional E2EE keys', () => {
+    // 1. Full production share URL with #k= key
+    const full = parseQrCodeData('https://sync-pad-io.vercel.app/?room=ALPHA1#k=secret_token_123');
+    expect(full.roomCode).toBe('ALPHA1');
+    expect(full.encryptionKey).toBe('secret_token_123');
+
+    // 2. Localhost URL with key
+    const local = parseQrCodeData('http://localhost:5173/?room=BETA99#k=my-e2ee-key');
+    expect(local.roomCode).toBe('BETA99');
+    expect(local.encryptionKey).toBe('my-e2ee-key');
+
+    // 3. Query string only with key
+    const query = parseQrCodeData('?room=GAMMA7#k=key_456');
+    expect(query.roomCode).toBe('GAMMA7');
+    expect(query.encryptionKey).toBe('key_456');
+
+    // 4. URL without key
+    const noKey = parseQrCodeData('https://sync-pad-io.vercel.app/?room=DELTA5');
+    expect(noKey.roomCode).toBe('DELTA5');
+    expect(noKey.encryptionKey).toBeUndefined();
+
+    // 5. Plain room code
+    const plain = parseQrCodeData('EPSILON9');
+    expect(plain.roomCode).toBe('EPSILON9');
+    expect(plain.encryptionKey).toBeUndefined();
+
+    // 6. Plain code with #k=
+    const plainWithKey = parseQrCodeData('ZETA42#k=special_key');
+    expect(plainWithKey.roomCode).toBe('ZETA42');
+    expect(plainWithKey.encryptionKey).toBe('special_key');
   });
 });
 

@@ -750,7 +750,7 @@ export default function App() {
           onUpdateUserName={handleUpdateUserName}
           onCreateRoom={handleCreateNewSession}
           onCreateCustomRoom={handleCreateCustomSession}
-          onJoinRoom={(code) => joinRoomRealtime(code)}
+          onJoinRoom={(code, customKey) => joinRoomRealtime(code, customKey)}
           isJoining={isJoining}
         />
       ) : (

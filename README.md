@@ -7,7 +7,7 @@
 An open-source, developer-first collaboration workspace. Share real-time code snippets, notes, documents, and multi-gigabyte files with **zero accounts, zero server tracking, client-side AES-256-GCM encryption**, and **direct WebRTC peer-to-peer streaming**.
 
 [![CI](https://github.com/simply1git/SyncPadIO/actions/workflows/ci.yml/badge.svg)](https://github.com/simply1git/SyncPadIO/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-38%2F38%20Passing-brightgreen.svg?logo=vitest&logoColor=white)](https://github.com/simply1git/SyncPadIO)
+[![Tests](https://img.shields.io/badge/Tests-41%2F41%20Passing-brightgreen.svg?logo=vitest&logoColor=white)](https://github.com/simply1git/SyncPadIO)
 [![Live Demo](https://img.shields.io/badge/Live%20Production-sync--pad--io.vercel.app-blue?logo=vercel&logoColor=white)](https://sync-pad-io.vercel.app)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -60,6 +60,7 @@ SyncPadIO was engineered to eliminate the friction and surveillance of tradition
 | 🎨 **Smart Syntax Highlighting** | Heuristic language auto-detection across 50+ languages with dark/light themes, inline line numbers, and live Markdown rendering. |
 | 📦 **One-Click Batch Downloads** | Download all files shared in a session packaged as a clean `.zip` archive (via JSZip) or sequentially to your local filesystem. |
 | ⏱️ **Flexible Lifecycle Policies** | Default **Ephemeral** (purged 5 min after users leave or after 1h idle) or **Creator 24h Safe Room** (preserved across reboots/desertion). |
+| 📷 **Instant QR Code Scanner** | Join rooms in seconds using live webcam/rear camera scanning or image/screenshot upload with automatic `#k=` zero-knowledge key resolution. |
 | 🛡️ **Hardened Production CSP** | Strict Level 3 Content Security Policy, `nosniff`, `DENY` framing, zero tracking cookies, and full origin isolation. |
 
 ---

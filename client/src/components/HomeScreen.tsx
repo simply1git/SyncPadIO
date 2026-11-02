@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowRight, Zap, Fingerprint, Clock } from 'lucide-react';
-import { extractRoomCode } from '../utils/helpers';
+import { Plus, ArrowRight, Zap, Fingerprint, Clock, QrCode, ScanLine } from 'lucide-react';
+import { extractRoomCode, parseQrCodeData } from '../utils/helpers';
+import { QRScannerModal } from './QRScannerModal';
 
 interface Props {
   userName: string;
   onUpdateUserName: (name: string) => void;
   onCreateRoom: (keep24h: boolean) => void;
   onCreateCustomRoom: (code: string, keep24h: boolean) => void;
-  onJoinRoom: (code: string) => void;
+  onJoinRoom: (code: string, customKey?: string) => void;
   isJoining: boolean;
 }
 
@@ -23,6 +24,7 @@ export function HomeScreen({
   const [customRoomCode, setCustomRoomCode] = useState('');
   const [showCustomCodeInput, setShowCustomCodeInput] = useState(false);
   const [keep24h, setKeep24h] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [passkeyRooms, setPasskeyRooms] = useState<string[]>([]);
 
   useEffect(() => {
@@ -43,8 +45,8 @@ export function HomeScreen({
 
   const handleJoinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = extractRoomCode(joinInput);
-    if (clean) onJoinRoom(clean);
+    const { roomCode, encryptionKey } = parseQrCodeData(joinInput);
+    if (roomCode) onJoinRoom(roomCode, encryptionKey);
   };
 
   const handleCustomSubmit = (e: React.FormEvent) => {
@@ -231,6 +233,16 @@ export function HomeScreen({
             aria-label="Room Code"
           />
           <button
+            type="button"
+            onClick={() => setShowScanner(true)}
+            className="btn-ghost px-3 py-2 flex items-center justify-center gap-1.5 text-xs font-semibold rounded-lg border border-border text-text-muted hover:text-accent hover:border-accent transition-all"
+            aria-label="Scan QR Code to join"
+            title="Scan QR Code"
+          >
+            <QrCode size={16} />
+            <span className="hidden sm:inline">Scan</span>
+          </button>
+          <button
             type="submit"
             disabled={!joinInput || isJoining}
             className="btn-accent px-3.5 py-2 flex items-center justify-center"
@@ -239,6 +251,18 @@ export function HomeScreen({
             <ArrowRight size={16} />
           </button>
         </form>
+
+        {/* QR Scanner Shortcut Link */}
+        <div className="mt-2 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => setShowScanner(true)}
+            className="inline-flex items-center gap-1.5 text-xs text-accent/90 hover:text-accent transition-colors py-1"
+          >
+            <ScanLine size={13} />
+            <span>Scan QR code to join with camera or image</span>
+          </button>
+        </div>
 
         {/* Passkey-Secured Rooms on this Device */}
         {passkeyRooms.length > 0 && (
@@ -268,6 +292,18 @@ export function HomeScreen({
           </div>
         )}
       </div>
+
+      {/* QR Code Camera / Image Scanner Modal */}
+      {showScanner && (
+        <QRScannerModal
+          isOpen={showScanner}
+          onClose={() => setShowScanner(false)}
+          onScanSuccess={(code, customKey) => {
+            setShowScanner(false);
+            onJoinRoom(code, customKey);
+          }}
+        />
+      )}
     </div>
   );
 }
