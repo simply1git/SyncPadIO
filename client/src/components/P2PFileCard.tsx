@@ -26,6 +26,7 @@ export function P2PFileCard({
   const { Icon, color, bg, isImage, isVideo } = getFileType(transfer.fileName);
   const isPdf = transfer.fileName.toLowerCase().endsWith('.pdf');
   const canPreview = (isImage || isVideo || isPdf) && Boolean(transfer.downloadUrl);
+  const timeStr = new Date(transfer.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   const handlePreviewClick = () => {
     if (!canPreview || !onPreview || !transfer.downloadUrl) return;
@@ -34,15 +35,13 @@ export function P2PFileCard({
       name: transfer.fileName,
       size: transfer.fileSize,
       url: transfer.downloadUrl,
-      timestamp: Date.now(),
+      timestamp: transfer.timestamp || Date.now(),
       storage_path: `p2p/${transfer.id}`,
-      uploader_name: transfer.senderName || (transfer.direction === 'send' ? 'You' : 'Peer'),
+      uploader_name: transfer.senderName || 'Peer',
       is_encrypted: false,
     };
     onPreview(fileData);
   };
-
-  const isCompleted = transfer.status === 'completed';
 
   return (
     <div
@@ -50,8 +49,8 @@ export function P2PFileCard({
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      {/* Selection checkbox */}
-      {isCompleted && onSelect && (
+      {/* Selection checkbox (exact match to FileCard) */}
+      {onSelect && (
         <button
           onClick={() => onSelect(transfer.id)}
           className="absolute top-2 left-2 z-10 p-1 rounded-full transition-all"
@@ -70,21 +69,20 @@ export function P2PFileCard({
         </button>
       )}
 
-      {/* Direction & P2P Pill Badge */}
+      {/* P2P Badge (exact visual match to E2EE badge in FileCard) */}
       <div
         className="absolute top-2 right-2 z-10 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium backdrop-blur-md"
         style={{
-          background: transfer.direction === 'send' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(34, 197, 94, 0.2)',
-          color: transfer.direction === 'send' ? '#38bdf8' : '#22c55e',
-          border: transfer.direction === 'send' ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid rgba(34, 197, 94, 0.35)',
+          background: 'rgba(34, 197, 94, 0.2)',
+          color: '#22c55e',
+          border: '1px solid rgba(34, 197, 94, 0.3)',
         }}
-        title={transfer.direction === 'send' ? 'Direct P2P Stream sent by you' : 'Direct P2P Stream received from peer'}
+        title="Direct WebRTC Peer-to-Peer Stream"
       >
-        <Zap size={10} />
-        <span>{transfer.direction === 'send' ? 'Sent' : 'Received'}</span>
+        <Zap size={11} /> P2P
       </div>
 
-      {/* Thumbnail / Icon */}
+      {/* Thumbnail / Icon (exact match to FileCard) */}
       <div
         className="relative flex items-center justify-center overflow-hidden"
         style={{ height: 100, background: bg, cursor: canPreview ? 'pointer' : 'default' }}
@@ -118,40 +116,28 @@ export function P2PFileCard({
           {transfer.fileName}
         </p>
         <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-          {transfer.senderName ? `${transfer.senderName} · ` : transfer.direction === 'send' ? 'Sent by you · ' : 'From peer · '}
-          {formatFileSize(transfer.fileSize)} · 0 MB Cloud
+          {transfer.senderName ? `Uploaded by ${transfer.senderName} · ` : ''}
+          {formatFileSize(transfer.fileSize)} · {timeStr}
         </p>
 
-        {/* Actions */}
+        {/* Actions (exact match to FileCard) */}
         <div className="flex gap-2">
           <button
             onClick={() => onDownload(transfer)}
             className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
             style={{ color: 'var(--text-muted)' }}
-            title="Save file to local disk"
-            aria-label={`Save ${transfer.fileName}`}
+            title="Download file"
+            aria-label={`Download ${transfer.fileName}`}
           >
             <Download size={12} />
-            Save
+            Download
           </button>
-
-          {canPreview && onPreview && (
-            <button
-              onClick={handlePreviewClick}
-              className="btn-ghost p-1.5"
-              title="Preview file"
-              aria-label={`Preview ${transfer.fileName}`}
-            >
-              <Eye size={13} style={{ color: 'var(--accent)' }} />
-            </button>
-          )}
-
           {onDismiss && (
             <button
               onClick={() => onDismiss(transfer.id)}
               className="btn-ghost p-1.5"
-              title="Remove from history"
-              aria-label={`Dismiss ${transfer.fileName}`}
+              title="Delete"
+              aria-label={`Delete ${transfer.fileName}`}
             >
               <Trash2 size={13} style={{ color: '#ef4444' }} />
             </button>

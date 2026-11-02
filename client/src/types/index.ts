@@ -46,6 +46,7 @@ export interface P2PTransfer {
   status: 'queued' | 'connecting' | 'transferring' | 'completed' | 'failed' | 'cancelled';
   direction: 'send' | 'receive';
   senderName?: string;
+  timestamp?: number;
   blob?: Blob;
   downloadUrl?: string;
   error?: string;

@@ -92,6 +92,13 @@ export default function App() {
     };
   }, [myUserId]);
 
+  // Keep P2P service sender name in sync with user's display name
+  useEffect(() => {
+    if (p2pServiceRef.current && userName) {
+      p2pServiceRef.current.setSenderName(userName);
+    }
+  }, [userName]);
+
   // ── Dark/Light Mode Theme Toggle ────────────────────────────────────────
   useEffect(() => {
     document.documentElement.classList.toggle('light-mode', !darkMode);

@@ -53,7 +53,7 @@ SyncPadIO was engineered to eliminate the friction and surveillance of tradition
 | Capability | Description |
 | :--- | :--- |
 | 🔐 **Zero-Knowledge E2EE** | Client-side AES-256-GCM encryption via native Web Crypto API. Servers only handle ciphertext; decryption occurs exclusively in memory. |
-| ⚡ **Direct P2P WebRTC Streaming** | Stream files of **unlimited size** directly between peer browsers in 64 KiB chunks with automated backpressure flow control (256 KiB threshold). |
+| ⚡ **Direct P2P WebRTC Streaming** | Stream files of **unlimited size** directly between peer browsers with persistent DataChannels, 1 MB RAM buffering, and native kernel backpressure flow control. |
 | ☁️ **Encrypted Cloud Uploads** | Fast chunked XHR uploads up to 50MB per file with per-transfer progress metrics, pause/cancel controls, and client-side ciphertext verification. |
 | 👆 **Biometric Passkey Lock** | Lock active browser sessions with hardware biometrics (Touch ID, Face ID, Windows Hello) via W3C WebAuthn standards. |
 | 📱 **Offline-First IndexedDB Engine** | Full offline support. Compose snippets and queue actions without internet; drafts auto-flush in order when connectivity resumes. |
@@ -87,14 +87,14 @@ graph TD
     end
 
     subgraph P2P["Direct Browser Tunnel"]
-        DC["WebRTC DataChannel (SCTP/DTLS)<br/>• 64 KiB Binary Chunks<br/>• Zero Cloud Storage"]
+        DC["WebRTC DataChannel (SCTP/DTLS)<br/>• 1 MB RAM Slices & Kernel Backpressure<br/>• Zero Cloud Storage"]
     end
 
-    A <-->|"Realtime Presence & WebRTC Signaling"| RT
-    B <-->|"Realtime Presence & WebRTC Signaling"| RT
+    A <--> RT
+    B <--> RT
     A -->|"Encrypted Cloud Upload"| ST
     B -->|"Download & Decrypt"| ST
-    A <-->|"Direct P2P Stream - Unlimited Size"| DC
+    A <--> DC
     DC <--> B
     V -.->|"Serves Static Bundle"| A
     V -.->|"Serves Static Bundle"| B

@@ -83,9 +83,9 @@ export function FileManager({
   const activeP2P = p2pTransfers.filter(
     t => t.status === 'queued' || t.status === 'connecting' || t.status === 'transferring'
   );
-  const completedP2P = p2pTransfers.filter(t => t.status === 'completed');
-  const otherP2P = p2pTransfers.filter(t => t.status === 'failed' || t.status === 'cancelled');
-  const totalP2PBytes = completedP2P.reduce((acc, t) => acc + t.fileSize, 0);
+  const p2pDisplayFiles = p2pTransfers.filter(t => t.status === 'completed' || Boolean(t.downloadUrl));
+  const otherP2P = p2pTransfers.filter(t => (t.status === 'failed' || t.status === 'cancelled') && !t.downloadUrl);
+  const totalP2PBytes = p2pDisplayFiles.reduce((acc, t) => acc + t.fileSize, 0);
 
   // ── Drag & Drop Handlers for Cloud ─────────────────────────────────────────
   const handleCloudDragOver = (e: React.DragEvent) => {
@@ -154,7 +154,7 @@ export function FileManager({
     });
   };
 
-  const selectAllP2P = () => setSelectedP2PIds(new Set(completedP2P.map(t => t.id)));
+  const selectAllP2P = () => setSelectedP2PIds(new Set(p2pDisplayFiles.map(t => t.id)));
   const deselectAllP2P = () => setSelectedP2PIds(new Set());
 
   // ── Download Handlers ──────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ export function FileManager({
 
   // P2P Zip (Zero-Server, In-Memory via JSZip)
   const downloadP2PZip = async (transfersToDownload: P2PTransfer[]) => {
-    const valid = transfersToDownload.filter(t => t.status === 'completed' && t.downloadUrl);
+    const valid = transfersToDownload.filter(t => (t.status === 'completed' || t.downloadUrl) && t.downloadUrl);
     if (valid.length === 0) {
       toast.error('No completed P2P files to export');
       return;
@@ -266,7 +266,7 @@ export function FileManager({
 
   // P2P Sequential
   const downloadP2PSequential = async (transfersToDownload: P2PTransfer[]) => {
-    const valid = transfersToDownload.filter(t => t.status === 'completed' && t.downloadUrl);
+    const valid = transfersToDownload.filter(t => (t.status === 'completed' || t.downloadUrl) && t.downloadUrl);
     if (valid.length === 0) return;
 
     downloadAbortRef.current = new AbortController();
@@ -640,6 +640,21 @@ export function FileManager({
                 </div>
               </div>
             </div>
+
+            {/* Hint to switch to Cloud Storage for persistent sharing (Exact match to Cloud banner) */}
+            <div
+              className="p-2 rounded-lg flex items-center justify-between text-xs cursor-pointer transition-colors hover:bg-white/5"
+              style={{ background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.15)' }}
+              onClick={() => setActiveMode('cloud')}
+            >
+              <div className="flex items-center gap-2">
+                <Cloud size={14} className="text-sky-400" />
+                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  Need to store files when peers are offline? Upload to <span className="font-semibold text-sky-400">Cloud Storage</span>
+                </span>
+              </div>
+              <span className="text-xs font-semibold text-sky-400">Switch ☁️</span>
+            </div>
           </div>
 
           <input
@@ -712,7 +727,7 @@ export function FileManager({
 
           {/* Completed P2P Transfers & Action Bar */}
           <div className="flex-1 overflow-y-auto px-3 pb-3">
-            {completedP2P.length === 0 && activeP2P.length === 0 && otherP2P.length === 0 ? (
+            {p2pDisplayFiles.length === 0 && activeP2P.length === 0 && otherP2P.length === 0 ? (
               <div className="text-center pt-12" style={{ color: 'var(--text-faint)' }}>
                 <p className="text-4xl mb-3">⚡</p>
                 <p className="text-sm font-medium">No P2P files streamed yet</p>
@@ -722,16 +737,16 @@ export function FileManager({
               </div>
             ) : (
               <>
-                {/* P2P Action Bar */}
+                {/* P2P Action Bar (Identical layout and controls to Cloud Action Bar) */}
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {completedP2P.length} {completedP2P.length === 1 ? 'file' : 'files'} · {formatFileSize(totalP2PBytes)} streamed · 0 MB cloud storage
+                    {p2pDisplayFiles.length} {p2pDisplayFiles.length === 1 ? 'file' : 'files'} · {formatFileSize(totalP2PBytes)} total
                   </p>
 
                   <div className="flex items-center gap-2">
                     {selectedP2PIds.size === 0 ? (
                       <>
-                        {completedP2P.length > 0 && (
+                        {p2pDisplayFiles.length > 0 && (
                           <>
                             <button
                               onClick={selectAllP2P}
@@ -741,7 +756,7 @@ export function FileManager({
                               Select All
                             </button>
                             <button
-                              onClick={() => downloadP2PZip(completedP2P)}
+                              onClick={() => downloadP2PZip(p2pDisplayFiles)}
                               className="btn-accent flex items-center gap-1 px-2.5 py-1 text-xs font-semibold"
                               aria-label="Download all P2P files as zip"
                             >
@@ -749,11 +764,11 @@ export function FileManager({
                             </button>
                           </>
                         )}
-                        {(completedP2P.length > 0 || otherP2P.length > 0) && (
+                        {(p2pDisplayFiles.length > 0 || otherP2P.length > 0) && (
                           <button
                             onClick={() => {
                               if (onClearAllCompletedP2P) onClearAllCompletedP2P();
-                              else completedP2P.forEach(t => onClearP2PTransfer?.(t.id));
+                              else p2pDisplayFiles.forEach(t => onClearP2PTransfer?.(t.id));
                             }}
                             className="btn-ghost p-1 text-zinc-400 hover:text-red-400 rounded"
                             title="Clear completed transfer history"
@@ -773,18 +788,18 @@ export function FileManager({
                           Clear ({selectedP2PIds.size})
                         </button>
                         <button
-                          onClick={() => downloadP2PZip(completedP2P.filter(t => selectedP2PIds.has(t.id)))}
+                          onClick={() => downloadP2PZip(p2pDisplayFiles.filter(t => selectedP2PIds.has(t.id)))}
                           className="btn-accent flex items-center gap-1 px-2.5 py-1 text-xs font-semibold"
                           aria-label="Download selected P2P files as zip"
                         >
                           <Download size={12} /> Zip ({selectedP2PIds.size})
                         </button>
                         <button
-                          onClick={() => downloadP2PSequential(completedP2P.filter(t => selectedP2PIds.has(t.id)))}
+                          onClick={() => downloadP2PSequential(p2pDisplayFiles.filter(t => selectedP2PIds.has(t.id)))}
                           className="btn-accent flex items-center gap-1 px-2.5 py-1 text-xs font-semibold"
                           aria-label="Download selected P2P files individually"
                         >
-                          <Download size={12} /> Save ({selectedP2PIds.size})
+                          <Download size={12} /> Individual
                         </button>
                       </>
                     )}
@@ -810,9 +825,9 @@ export function FileManager({
                   </div>
                 )}
 
-                {/* Grid of Completed and Inactive P2P Transfers (4-column responsive grid matching Cloud) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {[...completedP2P, ...otherP2P].map((p) => (
+                {/* Grid of Completed and Inactive P2P Transfers (Matching Cloud Storage responsive grid exactly) */}
+                <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+                  {[...p2pDisplayFiles, ...otherP2P].map((p) => (
                     <P2PFileCard
                       key={p.id}
                       transfer={p}
