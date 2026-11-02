@@ -1,10 +1,13 @@
-import { P2PTransfer, WebRTCSignalPayload } from '../types';
+import { P2PTransfer, WebRTCSignalPayload, P2PTunnelState } from '../types';
+import { createP2PStreamWriter, P2PStreamWriter, cleanupOPFSFile } from './opfsStorage';
+import { playSuccessChime, triggerHapticSuccess, wakeLock } from './feedback';
 
-export const CHUNK_SIZE = 64 * 1024; // 64 KiB SCTP network payload
-const BLOCK_SIZE = 1024 * 1024; // 1 MB disk read buffer for blazing fast I/O
-const BUFFERED_LOW_THRESHOLD = 256 * 1024; // 256 KiB native backpressure threshold
-const MAX_BUFFERED_AMOUNT = 512 * 1024; // 512 KiB maximum queued in socket
+// ── WebRTC & SCTP Constants (RFC 8831 / RFC 8832 Gold Standards) ─────────────
+export const CHUNK_SIZE = 64 * 1024; // 64 KiB atomic SCTP chunk (Zero fragmentation)
+const BUFFERED_LOW_THRESHOLD = 128 * 1024; // 128 KiB native threshold
+const MAX_BUFFERED_AMOUNT = 384 * 1024; // 384 KiB high-water mark for kernel backpressure
 const CONNECTION_TIMEOUT_MS = 15000; // 15 seconds watchdog
+const PING_INTERVAL_MS = 4000; // 4 second latency heartbeat
 
 export const DEFAULT_RTC_CONFIG: RTCConfiguration = {
   iceServers: [
@@ -12,6 +15,7 @@ export const DEFAULT_RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 interface QueuedSendItem {
@@ -20,18 +24,13 @@ interface QueuedSendItem {
   targetUserId?: string;
 }
 
-interface ReceiveBufferState {
-  chunks: ArrayBuffer[];
-  receivedBytes: number;
-  lastTime: number;
-  meta: {
-    id: string;
-    name: string;
-    size: number;
-    mimeType: string;
-    senderName?: string;
-    timestamp?: number;
-  };
+interface IncomingMeta {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string;
+  senderName?: string;
+  timestamp?: number;
 }
 
 export class WebRTCTransferService {
@@ -39,14 +38,27 @@ export class WebRTCTransferService {
   private senderName = 'You';
   private signalSender: ((signal: WebRTCSignalPayload) => void) | null = null;
 
-  // Persistent reusable WebRTC pipe for instant zero-latency file streams
+  // Dedicated Dual-Channel Topology (Zero-latency persistent pipe)
   private persistentPC: RTCPeerConnection | null = null;
-  private persistentDC: RTCDataChannel | null = null;
+  private controlDC: RTCDataChannel | null = null; // Label: 'sp_ctrl' (JSON)
+  private streamDC: RTCDataChannel | null = null; // Label: 'sp_data' (Raw Binary)
 
-  // Active transfers and buffers
+  // Tunnel state and observability
+  private tunnelState: P2PTunnelState = {
+    status: 'disconnected',
+    latencyMs: null,
+  };
+  private tunnelListeners: Set<(state: P2PTunnelState) => void> = new Set();
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Active transfers and OPFS streaming disk writer
   private transfers: Map<string, P2PTransfer> = new Map();
-  private receiveBuffers: Map<string, ReceiveBufferState> = new Map();
   private activeIncomingTransferId: string | null = null;
+  private activeIncomingMeta: IncomingMeta | null = null;
+  private activeIncomingWriter: P2PStreamWriter | null = null;
+  private activeIncomingBytes = 0;
+  private activeIncomingLastTime = 0;
+  private activeIncomingBytesSinceLast = 0;
 
   private listeners: Set<(transfers: P2PTransfer[]) => void> = new Set();
   private abortedTransfers: Set<string> = new Set();
@@ -72,6 +84,67 @@ export class WebRTCTransferService {
     this.signalSender = sender;
   }
 
+  // ── Tunnel State & Ping Heartbeat ──────────────────────────────────────────
+  public getTunnelState(): P2PTunnelState {
+    return { ...this.tunnelState };
+  }
+
+  public subscribeTunnel(listener: (state: P2PTunnelState) => void): () => void {
+    this.tunnelListeners.add(listener);
+    listener(this.getTunnelState());
+    return () => {
+      this.tunnelListeners.delete(listener);
+    };
+  }
+
+  private updateTunnelState(updates: Partial<P2PTunnelState>): void {
+    this.tunnelState = { ...this.tunnelState, ...updates };
+    const state = this.getTunnelState();
+    this.tunnelListeners.forEach((fn) => fn(state));
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.controlDC && this.controlDC.readyState === 'open') {
+        try {
+          this.controlDC.send(JSON.stringify({ type: 'ping', t: Date.now() }));
+        } catch {
+          // Ignored
+        }
+      }
+    }, PING_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  // ── Pre-Warming: Zero-Latency Connection Setup ─────────────────────────────
+  /**
+   * Pre-warms the WebRTC direct tunnel when peers enter a room.
+   * Uses deterministic initiator resolution to avoid glare collisions.
+   */
+  public prewarm(targetUserId?: string): void {
+    if (this.tunnelState.status === 'connected' || this.isConnectingPipe) return;
+    if (this.persistentPC && this.persistentPC.connectionState === 'connected') return;
+
+    // Deterministic Initiator Rule: alphabetically smaller userId initiates offer
+    if (targetUserId && this.myUserId > targetUserId) {
+      // Passive receiver: wait for peer's incoming offer
+      return;
+    }
+
+    const dummyTransferId = 'prewarm_' + Date.now();
+    this.isConnectingPipe = true;
+    this.updateTunnelState({ status: 'connecting', remotePeerId: targetUserId });
+    this.establishDualChannelPipe(dummyTransferId, targetUserId);
+  }
+
+  // ── Transfers Subscription ────────────────────────────────────────────────
   public subscribe(listener: (transfers: P2PTransfer[]) => void): () => void {
     this.listeners.add(listener);
     listener(this.getAllTransfers());
@@ -92,7 +165,7 @@ export class WebRTCTransferService {
   private updateTransfer(id: string, updates: Partial<P2PTransfer>): void {
     const existing = this.transfers.get(id);
     if (!existing) return;
-    // Prevent overriding a completed transfer with failed or cancelled from channel closure
+    // Guard against completing transfers being overwritten by channel drops
     if (existing.status === 'completed' && (updates.status === 'failed' || updates.status === 'cancelled')) {
       return;
     }
@@ -122,9 +195,7 @@ export class WebRTCTransferService {
     }
   }
 
-  /**
-   * Initiate sending a file directly to peers via WebRTC DataChannel (enqueued)
-   */
+  // ── Sending Public API ────────────────────────────────────────────────────
   public async sendFile(file: File, targetUserId?: string): Promise<string> {
     const transferId = 'p2p_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
 
@@ -145,16 +216,12 @@ export class WebRTCTransferService {
     this.transfers.set(transferId, initialTransfer);
     this.notify();
 
-    // Push into the high-speed sequential queue
     this.sendQueue.push({ transferId, file, targetUserId });
     this.processNextInSendQueue();
 
     return transferId;
   }
 
-  /**
-   * Send multiple files in batch
-   */
   public async sendFiles(files: File[] | FileList, targetUserId?: string): Promise<string[]> {
     const list = Array.from(files);
     const ids: string[] = [];
@@ -165,11 +232,8 @@ export class WebRTCTransferService {
     return ids;
   }
 
-  /**
-   * Process next file in send queue over the high-speed WebRTC data channel
-   */
   private async processNextInSendQueue(): Promise<void> {
-    if (this.activeSenderTransferId) return; // Currently streaming a file
+    if (this.activeSenderTransferId) return; // Currently streaming
     if (this.sendQueue.length === 0) return;
 
     const nextItem = this.sendQueue[0];
@@ -181,47 +245,52 @@ export class WebRTCTransferService {
       return;
     }
 
-    // 1. If persistent DataChannel is already open, stream IMMEDIATELY (0ms handshake delay)
-    if (this.persistentDC && this.persistentDC.readyState === 'open') {
+    // If Dual-Channels are already open, stream INSTANTLY (0 ms delay)
+    if (
+      this.controlDC &&
+      this.controlDC.readyState === 'open' &&
+      this.streamDC &&
+      this.streamDC.readyState === 'open'
+    ) {
       this.sendQueue.shift();
       this.activeSenderTransferId = nextItem.transferId;
       this.updateTransfer(nextItem.transferId, { status: 'transferring' });
-      await this.streamFileOverChannel(nextItem.transferId, nextItem.file, this.persistentDC);
+      await this.streamFileOverDualChannel(nextItem.transferId, nextItem.file);
       return;
     }
 
-    // 2. Otherwise, establish persistent WebRTC pipe if not already connecting
+    // Otherwise establish dual-channel pipe if not connecting
     if (!this.isConnectingPipe) {
       this.isConnectingPipe = true;
       this.updateTransfer(nextItem.transferId, { status: 'connecting' });
-      await this.establishWebRTCPipe(nextItem.transferId, nextItem.targetUserId);
+      this.updateTunnelState({ status: 'connecting', remotePeerId: nextItem.targetUserId });
+      await this.establishDualChannelPipe(nextItem.transferId, nextItem.targetUserId);
     }
   }
 
-  /**
-   * Establishes a single high-speed WebRTC DataChannel connection
-   */
-  private async establishWebRTCPipe(transferId: string, targetUserId?: string): Promise<void> {
+  // ── Dual-Channel Connection Establishment ─────────────────────────────────
+  private async establishDualChannelPipe(transferId: string, targetUserId?: string): Promise<void> {
     if (typeof window === 'undefined' || !('RTCPeerConnection' in window)) {
       this.updateTransfer(transferId, {
         status: 'failed',
         error: 'WebRTC is not supported in this browser environment',
       });
       this.isConnectingPipe = false;
+      this.updateTunnelState({ status: 'disconnected' });
       this.sendQueue.shift();
       this.processNextInSendQueue();
       return;
     }
 
-    // Watchdog timer for connection handshake
     const timeout = setTimeout(() => {
       if (this.isConnectingPipe) {
-        console.warn(`[WebRTC] Peer handshake timed out`);
+        console.warn('[WebRTC Tunnel] Peer connection handshake timed out');
         this.clearConnectionTimeout(transferId);
         this.isConnectingPipe = false;
+        this.updateTunnelState({ status: 'disconnected' });
         this.updateTransfer(transferId, {
           status: 'failed',
-          error: 'Connection timed out. Check that peer is online and connected to room.',
+          error: 'Connection timed out. Ensure peer is online in the room.',
         });
         this.sendQueue.shift();
         this.processNextInSendQueue();
@@ -245,27 +314,26 @@ export class WebRTCTransferService {
         }
       };
 
-      const dc = pc.createDataChannel('syncpad_highspeed_p2p', { ordered: true });
-      dc.binaryType = 'arraybuffer';
-      dc.bufferedAmountLowThreshold = BUFFERED_LOW_THRESHOLD;
-      this.persistentDC = dc;
-
-      dc.onopen = async () => {
-        this.clearConnectionTimeout(transferId);
-        this.isConnectingPipe = false;
-        // Pipe is open! Start streaming queued transfers
-        this.processNextInSendQueue();
-      };
-
-      dc.onerror = (e) => {
-        console.warn('[WebRTC DataChannel Notice]', e);
-      };
-
-      dc.onclose = () => {
-        if (this.persistentDC === dc) {
-          this.persistentDC = null;
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          this.updateTunnelState({ status: 'connected', remotePeerId: targetUserId });
+        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          this.updateTunnelState({ status: 'disconnected', latencyMs: null });
+          this.stopHeartbeat();
         }
       };
+
+      // 1. Channel A: Control & Metadata
+      const ctrlDC = pc.createDataChannel('sp_ctrl', { ordered: true });
+      this.controlDC = ctrlDC;
+      this.wireControlChannel(ctrlDC, transferId);
+
+      // 2. Channel B: Dedicated Raw Binary Stream
+      const streamDC = pc.createDataChannel('sp_data', { ordered: true });
+      streamDC.binaryType = 'arraybuffer';
+      streamDC.bufferedAmountLowThreshold = BUFFERED_LOW_THRESHOLD;
+      this.streamDC = streamDC;
+      this.wireStreamChannel(streamDC, transferId);
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -289,6 +357,7 @@ export class WebRTCTransferService {
     } catch (err) {
       this.clearConnectionTimeout(transferId);
       this.isConnectingPipe = false;
+      this.updateTunnelState({ status: 'disconnected' });
       const msg = err instanceof Error ? err.message : 'WebRTC initialization failed';
       this.updateTransfer(transferId, { status: 'failed', error: msg });
       this.sendQueue.shift();
@@ -296,9 +365,59 @@ export class WebRTCTransferService {
     }
   }
 
-  /**
-   * Handle incoming WebRTC signaling message
-   */
+  // ── Channel Event Handlers ────────────────────────────────────────────────
+  private wireControlChannel(dc: RTCDataChannel, transferId: string): void {
+    dc.onopen = () => {
+      this.clearConnectionTimeout(transferId);
+      this.isConnectingPipe = false;
+      this.updateTunnelState({ status: 'connected' });
+      this.startHeartbeat();
+
+      // If stream channel is also ready, start queued transfers
+      if (this.streamDC && this.streamDC.readyState === 'open') {
+        this.processNextInSendQueue();
+      }
+    };
+
+    dc.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        this.handleIncomingControlMessage(event.data);
+      }
+    };
+
+    dc.onclose = () => {
+      if (this.controlDC === dc) {
+        this.controlDC = null;
+        this.updateTunnelState({ status: 'disconnected', latencyMs: null });
+        this.stopHeartbeat();
+      }
+    };
+  }
+
+  private wireStreamChannel(dc: RTCDataChannel, transferId: string): void {
+    dc.onopen = () => {
+      this.clearConnectionTimeout(transferId);
+      this.isConnectingPipe = false;
+
+      if (this.controlDC && this.controlDC.readyState === 'open') {
+        this.processNextInSendQueue();
+      }
+    };
+
+    dc.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        this.handleIncomingBinaryChunk(event.data);
+      }
+    };
+
+    dc.onclose = () => {
+      if (this.streamDC === dc) {
+        this.streamDC = null;
+      }
+    };
+  }
+
+  // ── Signaling Handler ─────────────────────────────────────────────────────
   public async handleSignal(signal: WebRTCSignalPayload): Promise<void> {
     if (signal.fromUserId === this.myUserId) return;
     if (signal.toUserId && signal.toUserId !== this.myUserId) return;
@@ -344,10 +463,10 @@ export class WebRTCTransferService {
     const { transferId, sdp, fromUserId } = signal;
     if (!sdp) return;
 
-    // Clean up existing closed connection if any
     if (this.persistentPC && this.persistentPC.connectionState === 'closed') {
       this.persistentPC = null;
-      this.persistentDC = null;
+      this.controlDC = null;
+      this.streamDC = null;
     }
 
     try {
@@ -366,21 +485,26 @@ export class WebRTCTransferService {
         }
       };
 
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          this.updateTunnelState({ status: 'connected', remotePeerId: fromUserId });
+        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          this.updateTunnelState({ status: 'disconnected', latencyMs: null });
+          this.stopHeartbeat();
+        }
+      };
+
       pc.ondatachannel = (event) => {
-        const dc = event.channel;
-        dc.binaryType = 'arraybuffer';
-        dc.bufferedAmountLowThreshold = BUFFERED_LOW_THRESHOLD;
-        this.persistentDC = dc;
-
-        dc.onmessage = (msgEvent) => {
-          this.handleIncomingDataChannelMessage(msgEvent.data);
-        };
-
-        dc.onclose = () => {
-          if (this.persistentDC === dc) {
-            this.persistentDC = null;
-          }
-        };
+        const channel = event.channel;
+        if (channel.label === 'sp_ctrl') {
+          this.controlDC = channel;
+          this.wireControlChannel(channel, transferId);
+        } else if (channel.label === 'sp_data') {
+          channel.binaryType = 'arraybuffer';
+          channel.bufferedAmountLowThreshold = BUFFERED_LOW_THRESHOLD;
+          this.streamDC = channel;
+          this.wireStreamChannel(channel, transferId);
+        }
       };
 
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -403,135 +527,157 @@ export class WebRTCTransferService {
     }
   }
 
-  /**
-   * Processes incoming data channel messages (framing protocol)
-   */
-  private handleIncomingDataChannelMessage(data: unknown): void {
-    // 1. Control frame (JSON header, completion, or cancel)
-    if (typeof data === 'string') {
-      try {
-        const msg = JSON.parse(data);
+  // ── Inbound Message Handlers (Control & Binary) ───────────────────────────
+  private async handleIncomingControlMessage(raw: string): Promise<void> {
+    try {
+      const msg = JSON.parse(raw);
 
-        if (msg.type === 'file-header') {
-          const { id, name, size, mimeType, senderName, timestamp } = msg;
-          this.activeIncomingTransferId = id;
-          this.receiveBuffers.set(id, {
-            chunks: [],
-            receivedBytes: 0,
-            lastTime: Date.now(),
-            meta: { id, name, size, mimeType, senderName, timestamp },
-          });
-
-          const incomingTransfer: P2PTransfer = {
-            id,
-            fileName: name,
-            fileSize: size,
-            fileType: mimeType || 'application/octet-stream',
-            transferredBytes: 0,
-            progress: 0,
-            speed: 0,
-            status: 'transferring',
-            direction: 'receive',
-            senderName: senderName || 'Peer',
-            timestamp: timestamp || Date.now(),
-          };
-
-          this.transfers.set(id, incomingTransfer);
-          this.notify();
-          return;
+      // Latency Measurement
+      if (msg.type === 'ping') {
+        if (this.controlDC && this.controlDC.readyState === 'open') {
+          this.controlDC.send(JSON.stringify({ type: 'pong', t: msg.t }));
         }
-
-        if (msg.type === 'file-complete') {
-          const { id } = msg;
-          this.finalizeReceivedFile(id);
-          return;
-        }
-
-        if (msg.type === 'cancel') {
-          const { id } = msg;
-          this.receiveBuffers.delete(id);
-          this.updateTransfer(id, { status: 'cancelled' });
-          if (this.activeIncomingTransferId === id) {
-            this.activeIncomingTransferId = null;
-          }
-          return;
-        }
-      } catch {
-        // Ignored
-      }
-      return;
-    }
-
-    // 2. Binary frame (raw chunk)
-    if (data instanceof ArrayBuffer) {
-      const activeId = this.activeIncomingTransferId;
-      if (!activeId) return;
-
-      const bufferState = this.receiveBuffers.get(activeId);
-      if (!bufferState) return;
-
-      bufferState.chunks.push(data);
-      bufferState.receivedBytes += data.byteLength;
-
-      const now = Date.now();
-      const elapsed = (now - bufferState.lastTime) / 1000;
-      let speed = 0;
-      if (elapsed > 0.3) {
-        speed = Math.round(data.byteLength / elapsed);
-        bufferState.lastTime = now;
+        return;
       }
 
-      const progress = Math.min(100, Math.round((bufferState.receivedBytes / bufferState.meta.size) * 100));
-      this.updateTransfer(activeId, {
-        status: 'transferring',
-        transferredBytes: bufferState.receivedBytes,
-        progress,
-        speed,
-      });
-
-      // Auto-finalize if received total bytes
-      if (bufferState.receivedBytes >= bufferState.meta.size) {
-        this.finalizeReceivedFile(activeId);
+      if (msg.type === 'pong') {
+        const latency = Math.max(1, Math.round(Date.now() - msg.t));
+        this.updateTunnelState({ latencyMs: latency });
+        return;
       }
+
+      // File Header: Start OPFS Disk Stream
+      if (msg.type === 'file-header') {
+        const { id, name, size, mimeType, senderName, timestamp } = msg;
+        this.activeIncomingTransferId = id;
+        this.activeIncomingMeta = { id, name, size, mimeType, senderName, timestamp };
+        this.activeIncomingBytes = 0;
+        this.activeIncomingLastTime = Date.now();
+        this.activeIncomingBytesSinceLast = 0;
+
+        // Acquire mobile screen wake lock
+        wakeLock.retain();
+
+        // Create zero-RAM OPFS disk stream writer
+        this.activeIncomingWriter = await createP2PStreamWriter(id, name, mimeType || 'application/octet-stream');
+
+        const incomingTransfer: P2PTransfer = {
+          id,
+          fileName: name,
+          fileSize: size,
+          fileType: mimeType || 'application/octet-stream',
+          transferredBytes: 0,
+          progress: 0,
+          speed: 0,
+          status: 'transferring',
+          direction: 'receive',
+          senderName: senderName || 'Peer',
+          timestamp: timestamp || Date.now(),
+        };
+
+        this.transfers.set(id, incomingTransfer);
+        this.notify();
+        return;
+      }
+
+      // File Complete: Finalize disk file & notify
+      if (msg.type === 'file-complete') {
+        await this.finalizeIncomingTransfer();
+        return;
+      }
+
+      // Remote Cancel
+      if (msg.type === 'cancel') {
+        this.cancelTransfer(msg.id, false);
+        return;
+      }
+    } catch (e) {
+      console.warn('[WebRTC Control Frame Error]', e);
     }
   }
 
-  private finalizeReceivedFile(transferId: string): void {
-    const bufferState = this.receiveBuffers.get(transferId);
-    if (!bufferState) return;
+  private async handleIncomingBinaryChunk(chunk: ArrayBuffer): Promise<void> {
+    if (!this.activeIncomingWriter || !this.activeIncomingMeta) return;
 
-    const { meta } = bufferState;
-    const blob = new Blob(bufferState.chunks, { type: meta.mimeType });
-    const downloadUrl = URL.createObjectURL(blob);
+    await this.activeIncomingWriter.write(chunk);
 
-    this.updateTransfer(transferId, {
-      status: 'completed',
-      transferredBytes: meta.size,
-      progress: 100,
-      speed: 0,
-      blob,
-      downloadUrl,
-      timestamp: meta.timestamp || Date.now(),
-      senderName: meta.senderName || 'Peer',
+    this.activeIncomingBytes += chunk.byteLength;
+    this.activeIncomingBytesSinceLast += chunk.byteLength;
+
+    const now = Date.now();
+    const elapsed = (now - this.activeIncomingLastTime) / 1000;
+    let speed = 0;
+    if (elapsed > 0.25) {
+      speed = Math.round(this.activeIncomingBytesSinceLast / elapsed);
+      this.activeIncomingLastTime = now;
+      this.activeIncomingBytesSinceLast = 0;
+    }
+
+    const { id, size } = this.activeIncomingMeta;
+    const progress = Math.min(100, Math.round((this.activeIncomingBytes / size) * 100));
+    const etaSeconds = speed > 0 ? Math.ceil((size - this.activeIncomingBytes) / speed) : undefined;
+
+    this.updateTransfer(id, {
+      transferredBytes: this.activeIncomingBytes,
+      progress,
+      speed,
+      etaSeconds,
     });
+  }
 
-    this.receiveBuffers.delete(transferId);
-    if (this.activeIncomingTransferId === transferId) {
+  private async finalizeIncomingTransfer(): Promise<void> {
+    if (!this.activeIncomingWriter || !this.activeIncomingMeta) return;
+
+    const { id, size, mimeType, senderName, timestamp } = this.activeIncomingMeta;
+
+    try {
+      const file = await this.activeIncomingWriter.finish();
+      const downloadUrl = URL.createObjectURL(file);
+
+      this.updateTransfer(id, {
+        status: 'completed',
+        transferredBytes: size,
+        fileType: mimeType || 'application/octet-stream',
+        progress: 100,
+        speed: 0,
+        etaSeconds: 0,
+        blob: file,
+        downloadUrl,
+        timestamp: timestamp || Date.now(),
+        senderName: senderName || 'Peer',
+      });
+
+      // Feedback: synthesized audio chime & mobile haptic pulse
+      playSuccessChime();
+      triggerHapticSuccess();
+    } catch (err) {
+      console.error('[WebRTC Disk Finalization Error]', err);
+      this.updateTransfer(id, { status: 'failed', error: 'Failed to write file to local disk' });
+    } finally {
+      wakeLock.release();
+      this.activeIncomingWriter = null;
+      this.activeIncomingMeta = null;
       this.activeIncomingTransferId = null;
     }
   }
 
-  /**
-   * High-speed streaming engine: 1MB block buffering + native socket backpressure
-   */
-  private async streamFileOverChannel(
-    transferId: string,
-    file: File,
-    dc: RTCDataChannel
-  ): Promise<void> {
-    // 1. Send header control frame
+  // ── High-Speed Dual-Channel Streaming Loop ────────────────────────────────
+  private async streamFileOverDualChannel(transferId: string, file: File): Promise<void> {
+    const ctrl = this.controlDC;
+    const stream = this.streamDC;
+
+    if (!ctrl || ctrl.readyState !== 'open' || !stream || stream.readyState !== 'open') {
+      this.updateTransfer(transferId, { status: 'failed', error: 'DataChannel stream not ready' });
+      this.activeSenderTransferId = null;
+      this.processNextInSendQueue();
+      return;
+    }
+
+    wakeLock.retain();
+
+    // 1. Send Header Frame over Control Channel
     try {
-      dc.send(
+      ctrl.send(
         JSON.stringify({
           type: 'file-header',
           id: transferId,
@@ -544,7 +690,8 @@ export class WebRTCTransferService {
       );
     } catch (e) {
       console.warn('[WebRTC Stream Header Error]', e);
-      this.updateTransfer(transferId, { status: 'failed', error: 'Failed to send file header' });
+      wakeLock.release();
+      this.updateTransfer(transferId, { status: 'failed', error: 'Failed to dispatch file header' });
       this.activeSenderTransferId = null;
       this.processNextInSendQueue();
       return;
@@ -554,58 +701,56 @@ export class WebRTCTransferService {
     let lastTime = Date.now();
     let bytesSinceLast = 0;
 
-    // 2. Stream binary data in 1MB disk read blocks, sending 64KB network frames
+    // 2. Stream binary data in 64 KiB chunks with native kernel backpressure
     while (offset < file.size) {
-      if (this.abortedTransfers.has(transferId)) return;
+      if (this.abortedTransfers.has(transferId)) {
+        wakeLock.release();
+        return;
+      }
 
-      const blockEnd = Math.min(offset + BLOCK_SIZE, file.size);
-      const blockSlice = file.slice(offset, blockEnd);
-      const blockBuffer = await blockSlice.arrayBuffer();
-
-      let blockOffset = 0;
-      while (blockOffset < blockBuffer.byteLength) {
-        if (this.abortedTransfers.has(transferId)) return;
-
-        // Native backpressure check: wait for native socket to drain
-        if (dc.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-          await new Promise<void>((resolve) => {
-            dc.onbufferedamountlow = () => {
-              dc.onbufferedamountlow = null;
-              resolve();
-            };
-          });
-        }
-
-        const chunkEnd = Math.min(blockOffset + CHUNK_SIZE, blockBuffer.byteLength);
-        const chunk = blockBuffer.slice(blockOffset, chunkEnd);
-        dc.send(chunk);
-
-        blockOffset += chunk.byteLength;
-        offset += chunk.byteLength;
-        bytesSinceLast += chunk.byteLength;
-
-        const now = Date.now();
-        const elapsed = (now - lastTime) / 1000;
-        let speed = 0;
-        if (elapsed > 0.3) {
-          speed = Math.round(bytesSinceLast / elapsed);
-          lastTime = now;
-          bytesSinceLast = 0;
-        }
-
-        const progress = Math.min(100, Math.round((offset / file.size) * 100));
-        this.updateTransfer(transferId, {
-          transferredBytes: offset,
-          progress,
-          speed,
+      // Check native socket buffer: wait for kernel to drain
+      if (stream.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        await new Promise<void>((resolve) => {
+          stream.onbufferedamountlow = () => {
+            stream.onbufferedamountlow = null;
+            resolve();
+          };
         });
       }
+
+      const chunkEnd = Math.min(offset + CHUNK_SIZE, file.size);
+      const chunkSlice = file.slice(offset, chunkEnd);
+      const chunkBuffer = await chunkSlice.arrayBuffer();
+
+      stream.send(chunkBuffer);
+
+      offset += chunkBuffer.byteLength;
+      bytesSinceLast += chunkBuffer.byteLength;
+
+      const now = Date.now();
+      const elapsed = (now - lastTime) / 1000;
+      let speed = 0;
+      if (elapsed > 0.25) {
+        speed = Math.round(bytesSinceLast / elapsed);
+        lastTime = now;
+        bytesSinceLast = 0;
+      }
+
+      const progress = Math.min(100, Math.round((offset / file.size) * 100));
+      const etaSeconds = speed > 0 ? Math.ceil((file.size - offset) / speed) : undefined;
+
+      this.updateTransfer(transferId, {
+        transferredBytes: offset,
+        progress,
+        speed,
+        etaSeconds,
+      });
     }
 
-    // 3. Send complete control frame
-    if (dc.readyState === 'open') {
+    // 3. Send Complete Control Frame
+    if (ctrl.readyState === 'open') {
       try {
-        dc.send(JSON.stringify({ type: 'file-complete', id: transferId }));
+        ctrl.send(JSON.stringify({ type: 'file-complete', id: transferId }));
       } catch {
         // Ignored
       }
@@ -625,40 +770,52 @@ export class WebRTCTransferService {
       transferredBytes: file.size,
       progress: 100,
       speed: 0,
+      etaSeconds: 0,
       blob: file,
       downloadUrl: senderBlobUrl,
     });
 
-    // Advance queue immediately over the same persistent channel!
+    playSuccessChime();
+    triggerHapticSuccess();
+    wakeLock.release();
+
+    // Advance queue immediately over the persistent channel
     this.activeSenderTransferId = null;
-    setTimeout(() => this.processNextInSendQueue(), 20);
+    setTimeout(() => this.processNextInSendQueue(), 15);
   }
 
+  // ── Cancel & Cleanup ──────────────────────────────────────────────────────
   public cancelTransfer(transferId: string, notifyRemote = true): void {
     this.abortedTransfers.add(transferId);
     this.clearConnectionTimeout(transferId);
 
-    // Remove from send queue if queued
     this.sendQueue = this.sendQueue.filter((item) => item.transferId !== transferId);
 
-    if (notifyRemote && this.persistentDC && this.persistentDC.readyState === 'open') {
+    if (notifyRemote && this.controlDC && this.controlDC.readyState === 'open') {
       try {
-        this.persistentDC.send(JSON.stringify({ type: 'cancel', id: transferId }));
+        this.controlDC.send(JSON.stringify({ type: 'cancel', id: transferId }));
       } catch {
         // Ignored
       }
     }
 
-    this.receiveBuffers.delete(transferId);
     if (this.activeIncomingTransferId === transferId) {
+      if (this.activeIncomingWriter) {
+        this.activeIncomingWriter.abort().catch(() => {});
+        this.activeIncomingWriter = null;
+      }
+      this.activeIncomingMeta = null;
       this.activeIncomingTransferId = null;
+      cleanupOPFSFile(transferId).catch(() => {});
+      wakeLock.release();
     }
 
     this.updateTransfer(transferId, { status: 'cancelled' });
 
     if (this.activeSenderTransferId === transferId) {
       this.activeSenderTransferId = null;
-      setTimeout(() => this.processNextInSendQueue(), 20);
+      wakeLock.release();
+      setTimeout(() => this.processNextInSendQueue(), 15);
     }
   }
 
@@ -675,34 +832,46 @@ export class WebRTCTransferService {
         // Ignored
       }
     }
+
+    cleanupOPFSFile(transferId).catch(() => {});
     this.transfers.delete(transferId);
     this.notify();
   }
 
   public clearAllCompletedTransfers(): void {
-    const idsToClear: string[] = [];
+    const toClear: string[] = [];
     this.transfers.forEach((t, id) => {
       if (t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled') {
-        idsToClear.push(id);
+        toClear.push(id);
       }
     });
-    idsToClear.forEach((id) => this.clearTransfer(id));
+    toClear.forEach((id) => this.clearTransfer(id));
   }
 
   public cleanup(): void {
+    this.stopHeartbeat();
     this.connectionTimeouts.forEach((t) => clearTimeout(t));
     this.connectionTimeouts.clear();
     this.sendQueue = [];
     this.activeSenderTransferId = null;
     this.isConnectingPipe = false;
 
-    if (this.persistentDC) {
+    if (this.controlDC) {
       try {
-        this.persistentDC.close();
+        this.controlDC.close();
       } catch {
         // Ignored
       }
-      this.persistentDC = null;
+      this.controlDC = null;
+    }
+
+    if (this.streamDC) {
+      try {
+        this.streamDC.close();
+      } catch {
+        // Ignored
+      }
+      this.streamDC = null;
     }
 
     if (this.persistentPC) {
@@ -725,9 +894,7 @@ export class WebRTCTransferService {
     });
 
     this.transfers.clear();
-    this.receiveBuffers.clear();
+    this.tunnelListeners.clear();
     this.listeners.clear();
-    this.abortedTransfers.clear();
-    this.pendingCandidates.clear();
   }
 }

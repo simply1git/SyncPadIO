@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Trash2, Eye, CheckCircle2, Circle, Zap } from 'lucide-react';
+import { Download, Trash2, Eye, CheckCircle2, Circle, Zap, Share2 } from 'lucide-react';
 import { getFileType } from '../utils/fileIcons';
 import { formatFileSize } from '../utils/helpers';
 import { P2PTransfer, FileData } from '../types';
@@ -41,6 +41,30 @@ export function P2PFileCard({
       is_encrypted: false,
     };
     onPreview(fileData);
+  };
+
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && Boolean(transfer.blob);
+
+  const handleNativeShare = async () => {
+    if (!transfer.blob || !navigator.share) return;
+    try {
+      const fileToShare =
+        transfer.blob instanceof File
+          ? transfer.blob
+          : new File([transfer.blob], transfer.fileName, { type: transfer.fileType });
+      if (navigator.canShare && !navigator.canShare({ files: [fileToShare] })) {
+        onDownload(transfer);
+        return;
+      }
+      await navigator.share({
+        files: [fileToShare],
+        title: transfer.fileName,
+      });
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        onDownload(transfer);
+      }
+    }
   };
 
   return (
@@ -132,6 +156,16 @@ export function P2PFileCard({
             <Download size={12} />
             Download
           </button>
+          {canNativeShare && (
+            <button
+              onClick={handleNativeShare}
+              className="btn-ghost p-1.5"
+              title="Share / Save to Camera Roll"
+              aria-label={`Share ${transfer.fileName}`}
+            >
+              <Share2 size={13} style={{ color: '#38bdf8' }} />
+            </button>
+          )}
           {onDismiss && (
             <button
               onClick={() => onDismiss(transfer.id)}

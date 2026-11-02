@@ -8,6 +8,7 @@ import {
   Users,
   Trash2,
   Sparkles,
+  QrCode,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FileCard } from './FileCard';
@@ -15,12 +16,14 @@ import { P2PFileCard } from './P2PFileCard';
 import { formatFileSize } from '../utils/helpers';
 import { downloadFilesAsZip, downloadFilesSequential } from '../utils/zipDownload';
 import { triggerSave } from '../utils/download';
-import { FileData, UploadItem, P2PTransfer } from '../types';
+import { FileData, UploadItem, P2PTransfer, P2PTunnelState } from '../types';
 
 interface Props {
   files: FileData[];
   uploads: UploadItem[];
   p2pTransfers?: P2PTransfer[];
+  p2pTunnelState?: P2PTunnelState;
+  onOpenShare?: () => void;
   userCount?: number;
   roomId: string;
   encryptionKey?: string;
@@ -40,6 +43,8 @@ export function FileManager({
   files,
   uploads,
   p2pTransfers = [],
+  p2pTunnelState,
+  onOpenShare,
   userCount = 1,
   roomId,
   encryptionKey,
@@ -628,15 +633,34 @@ export function FileManager({
                     Unlimited Size · Zero Cloud Storage · WebRTC P2P
                   </span>
                   <span className="text-zinc-600">•</span>
-                  <span
-                    className="inline-flex items-center gap-1 text-[11px] font-medium"
-                    style={{ color: userCount > 1 ? '#22c55e' : '#f59e0b' }}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                    {userCount > 1
-                      ? `Ready (${userCount - 1} peer${userCount - 1 > 1 ? 's' : ''} online)`
-                      : 'Waiting for peer (invite peer above)'}
-                  </span>
+                  {p2pTunnelState?.status === 'connected' ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      P2P Tunnel Active {p2pTunnelState.latencyMs !== null ? `(${p2pTunnelState.latencyMs}ms)` : '· Ready'}
+                    </span>
+                  ) : p2pTunnelState?.status === 'connecting' ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      Pre-warming Tunnel…
+                    </span>
+                  ) : userCount > 1 ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                      Ready ({userCount - 1} peer{userCount - 1 > 1 ? 's' : ''} online)
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenShare?.();
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 px-2 py-0.5 rounded-full border border-sky-500/20 transition-all cursor-pointer"
+                      title="Pair your phone with a QR scan"
+                    >
+                      <QrCode size={11} /> Pair Phone / Scan QR
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -697,7 +721,9 @@ export function FileManager({
                           ? 'Queued'
                           : t.status === 'connecting'
                           ? 'Connecting…'
-                          : `${t.progress}%${t.speed > 0 ? ` · ${(t.speed / (1024 * 1024)).toFixed(1)} MB/s` : ''}`}
+                          : `${t.progress}%${t.speed > 0 ? ` · ${(t.speed / (1024 * 1024)).toFixed(1)} MB/s` : ''}${
+                              t.etaSeconds !== undefined && t.etaSeconds > 0 ? ` · ETA: ${t.etaSeconds}s` : ''
+                            }`}
                       </span>
                       {onCancelP2PTransfer && (
                         <button

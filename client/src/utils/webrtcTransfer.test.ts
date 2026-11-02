@@ -121,5 +121,35 @@ describe('WebRTC P2P Direct Transfer Service', () => {
     expect(buffered).toBeDefined();
     expect(buffered?.length).toBe(1);
   });
+
+  it('initializes tunnel state as disconnected and notifies tunnel subscribers', () => {
+    const tunnelListener = vi.fn();
+    const unsub = service.subscribeTunnel(tunnelListener);
+
+    expect(tunnelListener).toHaveBeenCalledTimes(1);
+    expect(tunnelListener).toHaveBeenCalledWith({
+      status: 'disconnected',
+      latencyMs: null,
+    });
+
+    unsub();
+  });
+
+  it('prewarms connection only when myUserId is lexicographically lower than targetUserId', () => {
+    const higherPeer = 'user_zzz999';
+    const lowerPeer = 'user_aaa000';
+
+    // Mock establishing pipe
+    // @ts-expect-error accessing private method for test spy
+    const establishSpy = vi.spyOn(service, 'establishDualChannelPipe').mockImplementation(async () => {});
+
+    // Case 1: myUserId (user_abc123) is higher than lowerPeer -> Should wait (no initiate)
+    service.prewarm(lowerPeer);
+    expect(establishSpy).not.toHaveBeenCalled();
+
+    // Case 2: myUserId (user_abc123) is lower than higherPeer -> Should initiate prewarm
+    service.prewarm(higherPeer);
+    expect(establishSpy).toHaveBeenCalledTimes(1);
+  });
 });
 

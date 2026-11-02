@@ -30,7 +30,7 @@ import { SessionLifetimeModal } from './components/SessionLifetimeModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WebRTCTransferService } from './utils/webrtcTransfer';
 import { hasRoomPasskey, isRoomLocked } from './utils/webAuthn';
-import { Snippet, FileData, UploadItem, ConnectionStatusType, P2PTransfer } from './types';
+import { Snippet, FileData, UploadItem, ConnectionStatusType, P2PTransfer, P2PTunnelState } from './types';
 
 const STORAGE_KEY_USER_ID = 'syncpad_user_id';
 const STORAGE_KEY_USER_NAME = 'syncpad_user_name';
@@ -62,6 +62,10 @@ export default function App() {
   const [files, setFiles] = useState<FileData[]>([]);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [p2pTransfers, setP2pTransfers] = useState<P2PTransfer[]>([]);
+  const [p2pTunnelState, setP2pTunnelState] = useState<P2PTunnelState>({
+    status: 'disconnected',
+    latencyMs: null,
+  });
 
   // ── UI / Preferences ────────────────────────────────────────────────────
   const [userName, setUserName] = useState(() => localStorage.getItem(STORAGE_KEY_USER_NAME) || '');
@@ -85,9 +89,11 @@ export default function App() {
   useEffect(() => {
     const service = new WebRTCTransferService(myUserId);
     p2pServiceRef.current = service;
-    const unsub = service.subscribe(setP2pTransfers);
+    const unsubTransfers = service.subscribe(setP2pTransfers);
+    const unsubTunnel = service.subscribeTunnel(setP2pTunnelState);
     return () => {
-      unsub();
+      unsubTransfers();
+      unsubTunnel();
       service.cleanup();
     };
   }, [myUserId]);
@@ -401,6 +407,24 @@ export default function App() {
         if (desertionTimerRef.current) {
           clearTimeout(desertionTimerRef.current);
           desertionTimerRef.current = null;
+        }
+
+        // Automatic Pre-Warming: find remote peer userId and pre-warm P2P connection!
+        if (count > 1 && p2pServiceRef.current) {
+          let peerUser: string | undefined;
+          for (const key of Object.keys(state)) {
+            const list = state[key] as Array<{ user?: string }>;
+            for (const item of list) {
+              if (item.user && item.user !== myUserId) {
+                peerUser = item.user;
+                break;
+              }
+            }
+            if (peerUser) break;
+          }
+          if (peerUser) {
+            p2pServiceRef.current.prewarm(peerUser);
+          }
         }
       })
       .on('presence', { event: 'leave' }, () => {
@@ -815,6 +839,8 @@ export default function App() {
                 files={files}
                 uploads={uploads}
                 p2pTransfers={p2pTransfers}
+                p2pTunnelState={p2pTunnelState}
+                onOpenShare={() => setShowShare(true)}
                 userCount={userCount}
                 roomId={roomId}
                 encryptionKey={encryptionKey}

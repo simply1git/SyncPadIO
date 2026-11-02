@@ -47,9 +47,16 @@ export interface P2PTransfer {
   direction: 'send' | 'receive';
   senderName?: string;
   timestamp?: number;
+  etaSeconds?: number;
   blob?: Blob;
   downloadUrl?: string;
   error?: string;
+}
+
+export interface P2PTunnelState {
+  status: 'disconnected' | 'connecting' | 'connected';
+  latencyMs: number | null;
+  remotePeerId?: string;
 }
 
 export interface WebRTCSignalPayload {
