@@ -43,7 +43,7 @@ export interface P2PTransfer {
   transferredBytes: number;
   progress: number; // 0 - 100
   speed: number; // bytes per second
-  status: 'connecting' | 'transferring' | 'completed' | 'failed' | 'cancelled';
+  status: 'queued' | 'connecting' | 'transferring' | 'completed' | 'failed' | 'cancelled';
   direction: 'send' | 'receive';
   senderName?: string;
   blob?: Blob;

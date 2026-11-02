@@ -7,7 +7,7 @@
 An open-source, developer-first collaboration workspace. Share real-time code snippets, notes, documents, and multi-gigabyte files with **zero accounts, zero server tracking, client-side AES-256-GCM encryption**, and **direct WebRTC peer-to-peer streaming**.
 
 [![CI](https://github.com/simply1git/SyncPadIO/actions/workflows/ci.yml/badge.svg)](https://github.com/simply1git/SyncPadIO/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-41%2F41%20Passing-brightgreen.svg?logo=vitest&logoColor=white)](https://github.com/simply1git/SyncPadIO)
+[![Tests](https://img.shields.io/badge/Tests-42%2F42%20Passing-brightgreen.svg?logo=vitest&logoColor=white)](https://github.com/simply1git/SyncPadIO)
 [![Live Demo](https://img.shields.io/badge/Live%20Production-sync--pad--io.vercel.app-blue?logo=vercel&logoColor=white)](https://sync-pad-io.vercel.app)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)

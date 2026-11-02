@@ -103,5 +103,23 @@ describe('WebRTC P2P Direct Transfer Service', () => {
     expect(remaining[0].id).toBe('t3');
     expect(remaining[0].status).toBe('transferring');
   });
+
+  it('buffers incoming ICE candidates if remote description is not yet ready', async () => {
+    const candidateSignal: WebRTCSignalPayload = {
+      type: 'candidate',
+      transferId: 'buffered_x9',
+      fromUserId: 'remote_peer_123',
+      candidate: { candidate: 'candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host', sdpMid: '0', sdpMLineIndex: 0 },
+    };
+
+    // Candidate arrives before offer/description is set
+    await service.handleSignal(candidateSignal);
+
+    // Verify candidate was buffered rather than dropped
+    // @ts-expect-error accessing private property for isolated unit test
+    const buffered = service.pendingCandidates.get('buffered_x9');
+    expect(buffered).toBeDefined();
+    expect(buffered?.length).toBe(1);
+  });
 });
 

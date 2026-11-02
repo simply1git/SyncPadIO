@@ -80,7 +80,9 @@ export function FileManager({
   const totalCloudBytes = files.reduce((acc, f) => acc + f.size, 0);
 
   // P2P transfer partitions
-  const activeP2P = p2pTransfers.filter(t => t.status === 'connecting' || t.status === 'transferring');
+  const activeP2P = p2pTransfers.filter(
+    t => t.status === 'queued' || t.status === 'connecting' || t.status === 'transferring'
+  );
   const completedP2P = p2pTransfers.filter(t => t.status === 'completed');
   const otherP2P = p2pTransfers.filter(t => t.status === 'failed' || t.status === 'cancelled');
   const totalP2PBytes = completedP2P.reduce((acc, t) => acc + t.fileSize, 0);
@@ -598,16 +600,17 @@ export function FileManager({
           onDragLeave={handleP2PDragLeave}
           onDrop={handleP2PDrop}
         >
-          {/* P2P Dedicated Dropzone */}
+          {/* P2P Dedicated Dropzone (Identical to Cloud Storage dropzone layout) */}
           <div className="m-3 space-y-2">
             <div
-              className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-4 text-center cursor-pointer transition-all ${
+              className={`rounded-xl border-2 border-dashed flex items-center justify-center gap-3 cursor-pointer transition-all ${
                 p2pDragActive ? 'drag-active' : ''
               }`}
               style={{
-                borderColor: p2pDragActive ? '#38bdf8' : 'rgba(56,189,248,0.3)',
-                background: p2pDragActive ? 'rgba(56,189,248,0.15)' : 'rgba(15,23,42,0.4)',
-                minHeight: 110,
+                padding: '16px',
+                borderColor: p2pDragActive ? '#38bdf8' : 'var(--border)',
+                minHeight: 74,
+                background: p2pDragActive ? 'rgba(56,189,248,0.15)' : 'transparent',
               }}
               onClick={() => p2pFileInputRef.current?.click()}
               role="button"
@@ -615,32 +618,26 @@ export function FileManager({
               aria-label="Direct P2P file dropzone"
               onKeyDown={(e) => { if (e.key === 'Enter') p2pFileInputRef.current?.click(); }}
             >
-              <div className="w-10 h-10 rounded-xl mb-2 flex items-center justify-center bg-sky-500/15 text-sky-400">
-                <Zap size={22} />
-              </div>
-              <p className="text-sm font-semibold text-white">
-                {p2pDragActive
-                  ? 'Drop files to stream directly via WebRTC'
-                  : 'Drop or browse files to stream directly to peers'}
-              </p>
-              <p className="text-xs mt-0.5 text-zinc-400">
-                Unlimited Size · Zero Server Storage · Multi-file supported
-              </p>
-
-              {/* Peer status indication inside dropzone */}
-              <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full"
-                style={{
-                  background: userCount > 1 ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
-                  color: userCount > 1 ? '#22c55e' : '#f59e0b',
-                  border: userCount > 1 ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(245,158,11,0.3)',
-                }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                <span>
-                  {userCount > 1
-                    ? `Ready to stream to ${userCount - 1} connected peer(s)`
-                    : 'Invite a peer to room to enable real-time streaming'}
-                </span>
+              <Zap size={20} style={{ color: p2pDragActive ? '#38bdf8' : 'var(--text-muted)' }} />
+              <div>
+                <p className="text-sm font-medium" style={{ color: p2pDragActive ? '#38bdf8' : 'var(--text)' }}>
+                  {p2pDragActive ? 'Drop files to stream immediately' : 'Click or drag files to Direct P2P Stream'}
+                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                    Unlimited Size · Zero Cloud Storage · WebRTC P2P
+                  </span>
+                  <span className="text-zinc-600">•</span>
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] font-medium"
+                    style={{ color: userCount > 1 ? '#22c55e' : '#f59e0b' }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    {userCount > 1
+                      ? `Ready (${userCount - 1} peer${userCount - 1 > 1 ? 's' : ''} online)`
+                      : 'Waiting for peer (invite peer above)'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -654,56 +651,80 @@ export function FileManager({
             aria-label="Hidden P2P file input"
           />
 
-          {/* Active Transfers Banner */}
+          {/* Active P2P Streams Strip (Identical to Cloud uploads progress list) */}
           {activeP2P.length > 0 && (
             <div className="px-3 mb-3 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-sky-400 px-1">
-                <span className="flex items-center gap-1.5">
-                  <Zap size={13} className="animate-pulse" /> Streaming Now ({activeP2P.length})
-                </span>
-              </div>
-              <div className="space-y-2">
-                {activeP2P.map((p) => (
-                  <P2PFileCard
-                    key={p.id}
-                    transfer={p}
-                    onDownload={handleDownloadSingleP2P}
-                    onCancel={onCancelP2PTransfer}
-                    onDismiss={onClearP2PTransfer}
-                    onPreview={handlePreviewP2P}
-                  />
-                ))}
-              </div>
+              {activeP2P.map((t) => (
+                <div
+                  key={t.id}
+                  className="p-2.5 rounded-lg border transition-all"
+                  style={{
+                    background: 'var(--surface)',
+                    borderColor: t.status === 'transferring' ? 'rgba(56, 189, 248, 0.4)' : 'var(--border)',
+                  }}
+                >
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <div className="flex items-center gap-2 truncate">
+                      <Zap
+                        size={13}
+                        className={t.status === 'transferring' ? 'text-sky-400 animate-pulse' : 'text-amber-400'}
+                      />
+                      <span className="font-medium truncate" style={{ color: 'var(--text)' }} title={t.fileName}>
+                        {t.fileName}
+                      </span>
+                      <span className="text-[10px] text-zinc-400 font-mono">
+                        ({formatFileSize(t.fileSize)})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-zinc-300">
+                        {t.status === 'queued'
+                          ? 'Queued'
+                          : t.status === 'connecting'
+                          ? 'Connecting…'
+                          : `${t.progress}%${t.speed > 0 ? ` · ${(t.speed / (1024 * 1024)).toFixed(1)} MB/s` : ''}`}
+                      </span>
+                      {onCancelP2PTransfer && (
+                        <button
+                          onClick={() => onCancelP2PTransfer(t.id)}
+                          className="btn-ghost p-1 text-red-400 hover:text-red-300 transition-colors"
+                          title="Cancel P2P transfer"
+                          aria-label={`Cancel transfer of ${t.fileName}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{
+                        width: `${t.status === 'queued' ? 0 : t.progress}%`,
+                        background: 'linear-gradient(90deg, #38bdf8, #60a5fa)',
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
           {/* Completed P2P Transfers & Action Bar */}
           <div className="flex-1 overflow-y-auto px-3 pb-3">
             {completedP2P.length === 0 && activeP2P.length === 0 && otherP2P.length === 0 ? (
-              <div className="text-center pt-10 px-4" style={{ color: 'var(--text-faint)' }}>
-                <div
-                  className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center"
-                  style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.2)' }}
-                >
-                  <Zap size={28} className="text-sky-400" />
-                </div>
-                <p className="text-base font-semibold text-white">Direct Peer-to-Peer Streaming</p>
-                <p className="text-xs mt-1 max-w-sm mx-auto text-zinc-400">
-                  Send high-resolution videos, full codebases, or disk images directly from device to device. Zero cloud limits, zero server storage.
+              <div className="text-center pt-12" style={{ color: 'var(--text-faint)' }}>
+                <p className="text-4xl mb-3">⚡</p>
+                <p className="text-sm font-medium">No P2P files streamed yet</p>
+                <p className="text-xs mt-1">
+                  Stream high-res media, huge folders, or datasets directly device-to-device with 0 KB cloud limits
                 </p>
-                <button
-                  type="button"
-                  onClick={() => p2pFileInputRef.current?.click()}
-                  className="mt-4 btn-accent px-4 py-2 text-xs font-semibold inline-flex items-center gap-1.5 rounded-lg"
-                >
-                  <Zap size={14} /> Select Files to Stream
-                </button>
               </div>
             ) : (
               <>
                 {/* P2P Action Bar */}
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {completedP2P.length} {completedP2P.length === 1 ? 'file' : 'files'} · {formatFileSize(totalP2PBytes)} streamed · 0 MB cloud storage
                   </p>
 
@@ -724,7 +745,7 @@ export function FileManager({
                               className="btn-accent flex items-center gap-1 px-2.5 py-1 text-xs font-semibold"
                               aria-label="Download all P2P files as zip"
                             >
-                              <Download size={12} /> Save All (Zip)
+                              <Download size={12} /> Download All (Zip)
                             </button>
                           </>
                         )}
@@ -789,11 +810,8 @@ export function FileManager({
                   </div>
                 )}
 
-                {/* Grid of Completed and Inactive P2P Transfers */}
-                <div
-                  className="grid grid-cols-2 gap-3"
-                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
-                >
+                {/* Grid of Completed and Inactive P2P Transfers (4-column responsive grid matching Cloud) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {[...completedP2P, ...otherP2P].map((p) => (
                     <P2PFileCard
                       key={p.id}
