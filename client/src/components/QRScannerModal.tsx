@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ScanLine,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { parseQrCodeData } from '../utils/helpers';
@@ -305,14 +306,24 @@ export function QRScannerModal({ isOpen, onClose, onScanSuccess }: Props) {
               <p className="text-xs text-text-muted mb-4 max-w-[240px]">
                 {cameraError}
               </p>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="btn-accent px-4 py-2 text-xs font-semibold flex items-center gap-2"
-              >
-                <Upload size={14} />
-                Upload QR Screenshot
-              </button>
+              <div className="flex flex-col gap-2 w-full max-w-[220px]">
+                <button
+                  type="button"
+                  onClick={() => startScanner()}
+                  className="btn-accent w-full py-2 text-xs font-semibold flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw size={13} />
+                  Try Camera Again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn-ghost w-full py-1.5 text-xs font-semibold border border-border flex items-center justify-center gap-1.5 text-text-muted hover:text-text hover:border-accent"
+                >
+                  <Upload size={13} />
+                  Upload Screenshot
+                </button>
+              </div>
             </div>
           )}
         </div>
