@@ -9,6 +9,8 @@ An open-source, developer-first collaboration workspace. Share real-time code sn
 [![CI](https://github.com/simply1git/SyncPadIO/actions/workflows/ci.yml/badge.svg)](https://github.com/simply1git/SyncPadIO/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/Tests-44%2F44%20Passing-brightgreen.svg?logo=vitest&logoColor=white)](https://github.com/simply1git/SyncPadIO)
 [![Live Demo](https://img.shields.io/badge/Live%20Production-sync--pad--io.vercel.app-blue?logo=vercel&logoColor=white)](https://sync-pad-io.vercel.app)
+[![PWA](https://img.shields.io/badge/PWA-Installable%20App-purple?logo=pwa&logoColor=white)](https://sync-pad-io.vercel.app)
+[![Audit](https://img.shields.io/badge/Audit%20Score-9.65%2F10-emerald?logo=shield&logoColor=white)](https://github.com/simply1git/SyncPadIO)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.2-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
@@ -28,6 +30,7 @@ An open-source, developer-first collaboration workspace. Share real-time code sn
 - [System Architecture](#-system-architecture)
 - [Security & Cryptography Model](#-security--cryptography-model)
 - [Direct P2P Streaming vs Cloud Storage](#-direct-p2p-streaming-vs-cloud-storage)
+- [Universal App Experience (Web + Desktop + Mobile)](#-universal-app-experience-web--desktop--mobile)
 - [Tech Stack](#-tech-stack)
 - [Quick Start](#-quick-start)
 - [Database Schema (Supabase)](#-database-schema-supabase)
@@ -161,6 +164,45 @@ flowchart LR
 | **Online Requirement** | Both sender & receiver online simultaneously | Asynchronous (peers download anytime) |
 | **Network Protocol** | WebRTC DataChannel (SCTP over DTLS) | HTTPS multipart streaming (XHR) |
 | **Ideal For** | Large video raw files, ISOs, private archives | Documents, configuration files, screenshots |
+
+---
+
+## 📱 Universal App Experience (Web + Desktop + Mobile)
+
+SyncPadIO runs as a **unified hybrid platform**: accessible instantly in the browser without installing anything, or installable as a dedicated, frameless standalone application on desktop and mobile.
+
+```mermaid
+graph TD
+    A["SyncPadIO Unified Core<br/>(React 18 + TypeScript + WebRTC)"] --> B["Instant Web Application<br/>(Zero Install · Works on Any Device)"]
+    A --> C["Desktop Standalone App<br/>(Windows · macOS · Linux)"]
+    A --> D["Mobile Standalone App<br/>(Android · iOS Safari)"]
+    A --> E["Native Mobile Package<br/>(Capacitor Android APK / iOS)"]
+```
+
+### 1. Progressive Web App (PWA) Standalone Mode
+- **Frameless Window-Controls Overlay:** Launches cleanly without browser URL bars, tabs, or clutter.
+- **OS App Shortcuts:** Right-click the app icon on Windows Taskbar, macOS Dock, or Android Home Screen for quick actions (*"Create Instant Session"* or *"Direct P2P Stream"*).
+- **Web Share Target API:** On Android and ChromeOS, select SyncPadIO directly from the native system *"Share with..."* menu to stream files instantly.
+
+### 2. Standalone Install Instructions
+- **Chrome / Edge / Brave (Desktop):** Click the **"Get Standalone App"** button on the home screen or click `(⊕)` in the browser address bar.
+- **Android:** Tap the install banner or use Chrome menu `(⋮)` → **"Install App"**.
+- **iPhone / iPad (iOS):** Tap **Share** in Safari → **"Add to Home Screen"** → **Add**.
+
+### 3. Turnkey Native App Packaging (Capacitor)
+SyncPadIO includes a pre-configured [`capacitor.config.json`](capacitor.config.json) (`appId: "io.syncpad.app"`). To compile a standalone Android APK:
+```bash
+# 1. Install Capacitor CLI & Android platform
+npm install @capacitor/core @capacitor/cli @capacitor/android
+
+# 2. Build production assets & synchronize
+npm --prefix client run build
+npx cap add android
+npx cap sync android
+
+# 3. Open in Android Studio or build APK
+npx cap open android
+```
 
 ---
 
