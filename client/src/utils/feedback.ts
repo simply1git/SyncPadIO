@@ -142,3 +142,4 @@ class WakeLockController {
 }
 
 export const wakeLock = new WakeLockController();
+

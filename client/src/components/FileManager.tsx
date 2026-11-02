@@ -323,12 +323,12 @@ export function FileManager({
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* ── Mode Switcher Header ────────────────────────────────────────── */}
-      <div className="p-2.5 border-b border-border flex items-center justify-between gap-2 flex-wrap" style={{ background: 'var(--surface-2)' }}>
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-surface border border-border text-xs">
+      <div className="p-2 sm:p-2.5 border-b border-border flex items-center justify-between gap-2" style={{ background: 'var(--surface-2)' }}>
+        <div className="w-full sm:w-auto grid grid-cols-2 sm:flex sm:items-center gap-1 p-1 rounded-xl bg-surface border border-border text-xs">
           {/* Cloud Storage Tab */}
           <button
             onClick={() => setActiveMode('cloud')}
-            className={`px-3 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
               activeMode === 'cloud'
                 ? 'bg-accent/15 text-accent shadow-sm border border-accent/30 font-semibold'
                 : 'text-text-muted hover:text-text border border-transparent'
@@ -348,7 +348,7 @@ export function FileManager({
           {/* Direct P2P Stream Tab */}
           <button
             onClick={() => setActiveMode('p2p')}
-            className={`px-3 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
               activeMode === 'p2p'
                 ? 'bg-sky-500/15 text-sky-400 shadow-sm border border-sky-400/30 font-semibold'
                 : 'text-text-muted hover:text-text border border-transparent'
@@ -356,8 +356,8 @@ export function FileManager({
             style={{ color: activeMode === 'p2p' ? '#38bdf8' : 'var(--text-muted)' }}
           >
             <Zap size={13} className={activeP2P.length > 0 ? 'animate-pulse text-amber-400' : ''} />
-            <span>Direct P2P Stream</span>
-            {p2pTransfers.length > 0 && (
+            <span>Direct P2P</span>
+            {p2pDisplayFiles.length > 0 && (
               <span
                 className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold"
                 style={{
@@ -365,11 +365,11 @@ export function FileManager({
                   color: activeP2P.length > 0 ? '#f59e0b' : '#38bdf8',
                 }}
               >
-                {p2pTransfers.length}
+                {p2pDisplayFiles.length}
               </span>
             )}
             <span
-              className="hidden sm:inline-block text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.2 rounded"
+              className="hidden md:inline-block text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.2 rounded"
               style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}
             >
               Unlimited
@@ -377,8 +377,8 @@ export function FileManager({
           </button>
         </div>
 
-        {/* Global Peers / Network Indicator */}
-        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+        {/* Global Peers / Network Indicator (Visible on desktop; mobile shows in top header) */}
+        <div className="hidden sm:flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
           <Users size={13} className={userCount > 1 ? 'text-emerald-400' : 'text-amber-400'} />
           <span className="text-[11px]">
             {userCount > 1 ? `${userCount - 1} peer(s) online` : 'Solo in room'}
@@ -426,10 +426,10 @@ export function FileManager({
                 cloudDragActive ? 'drag-active' : ''
               }`}
               style={{
-                padding: '16px',
+                padding: '14px',
                 borderColor: cloudDragActive ? 'var(--accent)' : 'var(--border)',
-                minHeight: 74,
-                background: cloudDragActive ? 'var(--accent-glow)' : 'transparent',
+                minHeight: 68,
+                background: cloudDragActive ? 'var(--accent-glow)' : 'var(--surface)',
               }}
               onClick={() => fileInputRef.current?.click()}
               role="button"
@@ -437,12 +437,13 @@ export function FileManager({
               aria-label="Upload files dropzone"
               onKeyDown={(e) => { if (e.key === 'Enter') fileInputRef.current?.click(); }}
             >
-              <Upload size={20} style={{ color: cloudDragActive ? 'var(--accent)' : 'var(--text-muted)' }} />
-              <div>
-                <p className="text-sm font-medium" style={{ color: cloudDragActive ? 'var(--accent)' : 'var(--text)' }}>
-                  {cloudDragActive ? 'Drop files to upload immediately' : 'Click or drag files to Cloud Storage'}
+              <Upload size={20} className="flex-shrink-0" style={{ color: cloudDragActive ? 'var(--accent)' : 'var(--text-muted)' }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: cloudDragActive ? 'var(--accent)' : 'var(--text)' }}>
+                  <span className="sm:hidden">Tap to upload files to Cloud</span>
+                  <span className="hidden sm:inline">Click or drag files to Cloud Storage</span>
                 </p>
-                <p className="text-xs" style={{ color: 'var(--text-faint)' }}>Max 50 MB per file · E2EE Encrypted</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-faint)' }}>Max 50 MB per file · E2EE Encrypted</p>
               </div>
             </div>
 
@@ -452,13 +453,13 @@ export function FileManager({
               style={{ background: 'rgba(96,165,250,0.05)', border: '1px solid rgba(96,165,250,0.15)' }}
               onClick={() => setActiveMode('p2p')}
             >
-              <div className="flex items-center gap-2">
-                <Sparkles size={14} className="text-accent" />
-                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                  Sending huge files or videos? Stream directly with <span className="font-semibold text-accent">P2P Unlimited Size</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles size={13} className="text-accent flex-shrink-0" />
+                <span className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+                  Sending huge files or videos? Stream with <span className="font-semibold text-accent">P2P Unlimited</span>
                 </span>
               </div>
-              <span className="text-xs font-semibold text-accent">Switch ⚡</span>
+              <span className="text-xs font-semibold text-accent flex-shrink-0">Switch ⚡</span>
             </div>
           </div>
 
@@ -612,10 +613,10 @@ export function FileManager({
                 p2pDragActive ? 'drag-active' : ''
               }`}
               style={{
-                padding: '16px',
+                padding: '14px',
                 borderColor: p2pDragActive ? '#38bdf8' : 'var(--border)',
-                minHeight: 74,
-                background: p2pDragActive ? 'rgba(56,189,248,0.15)' : 'transparent',
+                minHeight: 68,
+                background: p2pDragActive ? 'rgba(56,189,248,0.15)' : 'var(--surface)',
               }}
               onClick={() => p2pFileInputRef.current?.click()}
               role="button"
@@ -623,23 +624,24 @@ export function FileManager({
               aria-label="Direct P2P file dropzone"
               onKeyDown={(e) => { if (e.key === 'Enter') p2pFileInputRef.current?.click(); }}
             >
-              <Zap size={20} style={{ color: p2pDragActive ? '#38bdf8' : 'var(--text-muted)' }} />
-              <div>
-                <p className="text-sm font-medium" style={{ color: p2pDragActive ? '#38bdf8' : 'var(--text)' }}>
-                  {p2pDragActive ? 'Drop files to stream immediately' : 'Click or drag files to Direct P2P Stream'}
+              <Zap size={20} className="flex-shrink-0" style={{ color: p2pDragActive ? '#38bdf8' : 'var(--accent)' }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: p2pDragActive ? '#38bdf8' : 'var(--text)' }}>
+                  <span className="sm:hidden">Tap to stream files directly</span>
+                  <span className="hidden sm:inline">Click or drag files to Direct P2P Stream</span>
                 </p>
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                   <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                    Unlimited Size · Zero Cloud Storage · WebRTC P2P
+                    Unlimited Size · Direct P2P
                   </span>
-                  <span className="text-zinc-600">•</span>
+                  <span className="text-zinc-600 hidden sm:inline">•</span>
                   {p2pTunnelState?.status === 'connected' ? (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       P2P Tunnel Active {p2pTunnelState.latencyMs !== null ? `(${p2pTunnelState.latencyMs}ms)` : '· Ready'}
                     </span>
                   ) : p2pTunnelState?.status === 'connecting' ? (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                       Pre-warming Tunnel…
                     </span>
@@ -671,13 +673,13 @@ export function FileManager({
               style={{ background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.15)' }}
               onClick={() => setActiveMode('cloud')}
             >
-              <div className="flex items-center gap-2">
-                <Cloud size={14} className="text-sky-400" />
-                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                  Need to store files when peers are offline? Upload to <span className="font-semibold text-sky-400">Cloud Storage</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <Cloud size={13} className="text-sky-400 flex-shrink-0" />
+                <span className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+                  Need offline persistence? Upload to <span className="font-semibold text-sky-400">Cloud Storage</span>
                 </span>
               </div>
-              <span className="text-xs font-semibold text-sky-400">Switch ☁️</span>
+              <span className="text-xs font-semibold text-sky-400 flex-shrink-0">Switch ☁️</span>
             </div>
           </div>
 

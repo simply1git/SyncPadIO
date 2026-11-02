@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Trash2, Eye, CheckCircle2, Circle, Zap, Share2 } from 'lucide-react';
+import { Download, Trash2, Eye, Check, Zap, Share2 } from 'lucide-react';
 import { getFileType } from '../utils/fileIcons';
 import { formatFileSize } from '../utils/helpers';
 import { P2PTransfer, FileData } from '../types';
@@ -77,18 +77,17 @@ export function P2PFileCard({
       {onSelect && (
         <button
           onClick={() => onSelect(transfer.id)}
-          className="absolute top-2 left-2 z-10 p-1 rounded-full transition-all"
-          style={{
-            background: selected ? 'var(--accent)' : 'rgba(0,0,0,0.3)',
-            opacity: hover || selected ? 1 : 0.5,
-          }}
+          className="absolute top-2 left-2 z-10 transition-transform active:scale-90"
+          style={{ opacity: hover || selected ? 1 : 0.7 }}
           title={selected ? 'Deselect' : 'Select'}
           aria-label={selected ? `Deselect ${transfer.fileName}` : `Select ${transfer.fileName}`}
         >
           {selected ? (
-            <CheckCircle2 size={18} color="#fff" fill="#fff" />
+            <div className="w-5 h-5 rounded-full bg-accent flex items-center justify-center text-white shadow-md">
+              <Check size={12} strokeWidth={3} />
+            </div>
           ) : (
-            <Circle size={18} color="#fff" />
+            <div className="w-5 h-5 rounded-full border-2 border-white/80 bg-black/40 backdrop-blur-sm" />
           )}
         </button>
       )}
@@ -136,40 +135,46 @@ export function P2PFileCard({
 
       {/* Info */}
       <div className="p-3">
-        <p className="text-sm font-medium truncate mb-1" style={{ color: 'var(--text)' }} title={transfer.fileName}>
+        <p className="text-sm font-semibold truncate mb-1" style={{ color: 'var(--text)' }} title={transfer.fileName}>
           {transfer.fileName}
         </p>
-        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-          {transfer.senderName ? `Uploaded by ${transfer.senderName} · ` : ''}
-          {formatFileSize(transfer.fileSize)} · {timeStr}
-        </p>
+        <div className="flex flex-col gap-0.5 mb-2.5 text-xs text-zinc-400">
+          {transfer.senderName && (
+            <span className="truncate text-[11px] text-zinc-400">
+              Uploaded by {transfer.senderName}
+            </span>
+          )}
+          <span className="text-[11px] font-mono text-zinc-500 whitespace-nowrap">
+            {formatFileSize(transfer.fileSize)} · {timeStr}
+          </span>
+        </div>
 
         {/* Actions (exact match to FileCard) */}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 items-center">
           <button
             onClick={() => onDownload(transfer)}
-            className="btn-ghost flex items-center gap-1 text-xs px-2 py-1 flex-1 justify-center"
-            style={{ color: 'var(--text-muted)' }}
+            className="btn-ghost flex items-center gap-1 text-xs py-1.5 px-2 flex-1 justify-center font-medium rounded-lg"
+            style={{ color: 'var(--text)' }}
             title="Download file"
             aria-label={`Download ${transfer.fileName}`}
           >
-            <Download size={12} />
+            <Download size={12} className="text-accent" />
             Download
           </button>
           {canNativeShare && (
             <button
               onClick={handleNativeShare}
-              className="btn-ghost p-1.5"
+              className="btn-ghost p-1.5 rounded-lg"
               title="Share / Save to Camera Roll"
               aria-label={`Share ${transfer.fileName}`}
             >
-              <Share2 size={13} style={{ color: '#38bdf8' }} />
+              <Share2 size={13} style={{ color: 'var(--accent)' }} />
             </button>
           )}
           {onDismiss && (
             <button
               onClick={() => onDismiss(transfer.id)}
-              className="btn-ghost p-1.5"
+              className="btn-ghost p-1.5 rounded-lg hover:text-red-400"
               title="Delete"
               aria-label={`Delete ${transfer.fileName}`}
             >

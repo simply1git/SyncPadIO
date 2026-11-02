@@ -803,22 +803,42 @@ export default function App() {
             onLeaveRoom={handleLeaveRoom}
           />
 
-          {/* Tab bar for mobile */}
-          <div className="flex gap-1 p-2 md:hidden" style={{ borderBottom: '1px solid var(--border)' }}>
-            <button
-              className={`tab-btn ${activeTab === 'text' ? 'active' : ''}`}
-              onClick={() => setActiveTab('text')}
-              aria-label="View Snippets tab"
-            >
-              ✏️ Snippets {snippets.length > 0 && `(${snippets.length})`}
-            </button>
-            <button
-              className={`tab-btn ${activeTab === 'files' ? 'active' : ''}`}
-              onClick={() => setActiveTab('files')}
-              aria-label="View Files tab"
-            >
-              📁 Files {files.length > 0 && `(${files.length})`}
-            </button>
+          {/* Mobile Navigation Segmented Control */}
+          <div className="p-2 md:hidden" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="grid grid-cols-2 p-1 rounded-xl bg-surface-2 border border-border">
+              <button
+                className={`py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  activeTab === 'text'
+                    ? 'bg-surface text-accent shadow-sm'
+                    : 'text-text-muted hover:text-text'
+                }`}
+                onClick={() => setActiveTab('text')}
+                aria-label="View Snippets tab"
+              >
+                <span>✏️ Snippets</span>
+                {snippets.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-accent/15 text-accent">
+                    {snippets.length}
+                  </span>
+                )}
+              </button>
+              <button
+                className={`py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  activeTab === 'files'
+                    ? 'bg-surface text-accent shadow-sm'
+                    : 'text-text-muted hover:text-text'
+                }`}
+                onClick={() => setActiveTab('files')}
+                aria-label="View Files tab"
+              >
+                <span>📁 Files</span>
+                {(files.length > 0 || p2pTransfers.length > 0) && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-accent/15 text-accent">
+                    {files.length + p2pTransfers.filter(t => t.status === 'completed' || t.downloadUrl).length}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Main workspace container */}

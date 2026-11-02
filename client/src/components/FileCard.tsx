@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Download, Trash2, Eye, CheckCircle2, Circle, X, ShieldCheck } from 'lucide-react';
+import { Download, Trash2, Eye, Check, X, ShieldCheck } from 'lucide-react';
 import { downloadWithProgress } from '../utils/download';
 import { getFileType } from '../utils/fileIcons';
 import { formatFileSize } from '../utils/helpers';
@@ -79,18 +79,17 @@ export function FileCard({
       {onSelect && (
         <button
           onClick={() => onSelect(file.id)}
-          className="absolute top-2 left-2 z-10 p-1 rounded-full transition-all"
-          style={{
-            background: selected ? 'var(--accent)' : 'rgba(0,0,0,0.3)',
-            opacity: hover || selected ? 1 : 0.5
-          }}
+          className="absolute top-2 left-2 z-10 transition-transform active:scale-90"
+          style={{ opacity: hover || selected ? 1 : 0.7 }}
           title={selected ? 'Deselect' : 'Select'}
           aria-label={selected ? `Deselect ${file.name}` : `Select ${file.name}`}
         >
           {selected ? (
-            <CheckCircle2 size={18} color="#fff" fill="#fff" />
+            <div className="w-5 h-5 rounded-full bg-accent flex items-center justify-center text-white shadow-md">
+              <Check size={12} strokeWidth={3} />
+            </div>
           ) : (
-            <Circle size={18} color="#fff" />
+            <div className="w-5 h-5 rounded-full border-2 border-white/80 bg-black/40 backdrop-blur-sm" />
           )}
         </button>
       )}
@@ -136,13 +135,19 @@ export function FileCard({
 
       {/* Info */}
       <div className="p-3">
-        <p className="text-sm font-medium truncate mb-1" style={{ color: 'var(--text)' }} title={file.name}>
+        <p className="text-sm font-semibold truncate mb-1" style={{ color: 'var(--text)' }} title={file.name}>
           {file.name}
         </p>
-        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-          {file.uploader_name ? `Uploaded by ${file.uploader_name} · ` : ''}
-          {formatFileSize(file.size)} · {timeStr}
-        </p>
+        <div className="flex flex-col gap-0.5 mb-2.5 text-xs text-zinc-400">
+          {file.uploader_name && (
+            <span className="truncate text-[11px] text-zinc-400">
+              Uploaded by {file.uploader_name}
+            </span>
+          )}
+          <span className="text-[11px] font-mono text-zinc-500 whitespace-nowrap">
+            {formatFileSize(file.size)} · {timeStr}
+          </span>
+        </div>
 
         {/* Download progress bar */}
         {dlProgress !== null && (
