@@ -27,7 +27,9 @@ import { PreviewModal } from './components/PreviewModal';
 import { BiometricModal } from './components/BiometricModal';
 import { LockScreen } from './components/LockScreen';
 import { SessionLifetimeModal } from './components/SessionLifetimeModal';
+import { InstallModal } from './components/InstallModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { usePWAInstall } from './hooks/usePWAInstall';
 import { WebRTCTransferService } from './utils/webrtcTransfer';
 import { hasRoomPasskey, isRoomLocked } from './utils/webAuthn';
 import { Snippet, FileData, UploadItem, ConnectionStatusType, P2PTransfer, P2PTunnelState } from './types';
@@ -76,6 +78,8 @@ export default function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [showNameModal, setShowNameModal] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const { isInstallable, isInstalled, isIOS, hasNativePrompt, triggerInstall } = usePWAInstall();
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -782,6 +786,8 @@ export default function App() {
           onCreateRoom={handleCreateNewSession}
           onCreateCustomRoom={handleCreateCustomSession}
           onJoinRoom={(code, customKey) => joinRoomRealtime(code, customKey)}
+          onOpenInstallModal={() => setShowInstallModal(true)}
+          isInstallable={isInstallable && !isInstalled}
           isJoining={isJoining}
         />
       ) : (
@@ -800,6 +806,8 @@ export default function App() {
             onOpenShareModal={() => setShowShare(true)}
             onOpenBiometricModal={() => setShowBiometricModal(true)}
             onOpenLifetimeModal={() => setShowLifetimeModal(true)}
+            onOpenInstallModal={() => setShowInstallModal(true)}
+            isInstallable={isInstallable && !isInstalled}
             onLeaveRoom={handleLeaveRoom}
           />
 
@@ -978,6 +986,16 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
+
+      {showInstallModal && (
+        <InstallModal
+          isOpen={showInstallModal}
+          onClose={() => setShowInstallModal(false)}
+          isIOS={isIOS}
+          hasNativePrompt={hasNativePrompt}
+          onInstall={triggerInstall}
+        />
       )}
     </ErrorBoundary>
   );

@@ -46,13 +46,40 @@ export default defineConfig({
       },
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'SyncPadIO',
+        name: 'SyncPadIO - Direct P2P & Ephemeral Sharing',
         short_name: 'SyncPadIO',
-        description: 'Real-time, zero-knowledge ephemeral code and file sharing',
-        theme_color: '#0a0a0a',
-        background_color: '#0a0a0a',
+        description: 'Zero-knowledge real-time code, notes, and direct WebRTC P2P stream sharing',
+        theme_color: '#0b0d13',
+        background_color: '#0b0d13',
         display: 'standalone',
-        orientation: 'portrait-primary',
+        display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+        orientation: 'any',
+        categories: ['productivity', 'utilities', 'developer tools'],
+        shortcuts: [
+          {
+            name: 'Create Instant Session',
+            short_name: 'New Room',
+            description: 'Generate an instant encrypted ephemeral room',
+            url: '/',
+            icons: [{ src: 'icon.svg', sizes: 'any' }]
+          },
+          {
+            name: 'Direct P2P Stream',
+            short_name: 'P2P Transfer',
+            description: 'Direct browser-to-browser infinite file streaming',
+            url: '/?tab=p2p',
+            icons: [{ src: 'icon.svg', sizes: 'any' }]
+          }
+        ],
+        share_target: {
+          action: '/?share-target=true',
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url'
+          }
+        },
         icons: [
           {
             src: 'icon.svg',

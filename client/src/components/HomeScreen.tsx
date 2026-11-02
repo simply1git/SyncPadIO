@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowRight, Zap, Fingerprint, Clock, QrCode, ScanLine } from 'lucide-react';
+import { Plus, ArrowRight, Zap, Fingerprint, Clock, QrCode, ScanLine, Download } from 'lucide-react';
 import { extractRoomCode, parseQrCodeData } from '../utils/helpers';
 import { QRScannerModal } from './QRScannerModal';
 
@@ -9,6 +9,8 @@ interface Props {
   onCreateRoom: (keep24h: boolean) => void;
   onCreateCustomRoom: (code: string, keep24h: boolean) => void;
   onJoinRoom: (code: string, customKey?: string) => void;
+  onOpenInstallModal?: () => void;
+  isInstallable?: boolean;
   isJoining: boolean;
 }
 
@@ -18,6 +20,8 @@ export function HomeScreen({
   onCreateRoom,
   onCreateCustomRoom,
   onJoinRoom,
+  onOpenInstallModal,
+  isInstallable = true,
   isJoining,
 }: Props) {
   const [joinInput, setJoinInput] = useState('');
@@ -289,6 +293,21 @@ export function HomeScreen({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Install Native App Pill */}
+        {onOpenInstallModal && isInstallable && (
+          <div className="mt-5 pt-3 border-t border-border flex justify-center">
+            <button
+              type="button"
+              onClick={onOpenInstallModal}
+              className="px-3 py-1.5 rounded-full text-xs flex items-center gap-2 border border-border text-text-muted hover:text-accent hover:border-accent/40 bg-surface transition-all active:scale-95 shadow-sm"
+              title="Install SyncPadIO as standalone App on Desktop or Mobile"
+            >
+              <Download size={13} className="text-accent" />
+              <span>Get Standalone App (Win / Mac / iOS / Android)</span>
+            </button>
           </div>
         )}
       </div>

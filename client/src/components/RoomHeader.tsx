@@ -1,4 +1,4 @@
-import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint, Clock, Zap } from 'lucide-react';
+import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint, Clock, Zap, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatusType } from '../types';
 
@@ -16,6 +16,8 @@ interface Props {
   onOpenShareModal: () => void;
   onOpenBiometricModal: () => void;
   onOpenLifetimeModal?: () => void;
+  onOpenInstallModal?: () => void;
+  isInstallable?: boolean;
   onLeaveRoom: () => void;
 }
 
@@ -33,6 +35,8 @@ export function RoomHeader({
   onOpenShareModal,
   onOpenBiometricModal,
   onOpenLifetimeModal,
+  onOpenInstallModal,
+  isInstallable = true,
   onLeaveRoom,
 }: Props) {
   const copyRoomCode = () => {
@@ -178,6 +182,17 @@ export function RoomHeader({
         >
           <Fingerprint size={13} />
         </button>
+
+        {onOpenInstallModal && isInstallable && (
+          <button
+            onClick={onOpenInstallModal}
+            className="btn-ghost p-1.5 rounded-md text-zinc-400 hover:text-accent"
+            title="Install SyncPadIO App (Windows / Mac / iOS / Android)"
+            aria-label="Install SyncPadIO App"
+          >
+            <Download size={13} />
+          </button>
+        )}
 
         <button
           onClick={onToggleDarkMode}

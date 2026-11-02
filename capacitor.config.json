@@ -1,0 +1,15 @@
+{
+  "appId": "io.syncpad.app",
+  "appName": "SyncPadIO",
+  "webDir": "client/dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#0b0d13",
+      "showSpinner": false
+    }
+  }
+}
