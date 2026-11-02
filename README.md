@@ -93,10 +93,10 @@ graph TD
     B <-->|"Realtime Presence & WebRTC Signaling"| RT
     A -->|"Encrypted Cloud Upload"| ST
     B -->|"Download & Decrypt"| ST
-    A <-->|"Direct P2P Stream (Unlimited Size)"| DC
+    A <-->|"Direct P2P Stream - Unlimited Size"| DC
     DC <--> B
-    V -.->|Serves Static Bundle| A
-    V -.->|Serves Static Bundle| B
+    V -.->|"Serves Static Bundle"| A
+    V -.->|"Serves Static Bundle"| B
     RT --- DB
 ```
 

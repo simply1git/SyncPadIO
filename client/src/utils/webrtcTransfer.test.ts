@@ -73,5 +73,35 @@ describe('WebRTC P2P Direct Transfer Service', () => {
     service.cleanup();
     expect(service.getAllTransfers()).toEqual([]);
   });
+
+  it('delegates multiple files in batch via sendFiles', async () => {
+    const mockFile1 = new File(['hello'], 'hello.txt', { type: 'text/plain' });
+    const mockFile2 = new File(['world'], 'world.txt', { type: 'text/plain' });
+
+    const sendSpy = vi.spyOn(service, 'sendFile').mockImplementation(async (f) => `id_${f.name}`);
+    const results = await service.sendFiles([mockFile1, mockFile2]);
+
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    expect(results).toEqual(['id_hello.txt', 'id_world.txt']);
+  });
+
+  it('clears completed, failed, and cancelled transfers with clearAllCompletedTransfers', () => {
+    // Manually populate internal transfers map for testing
+    // @ts-expect-error accessing private property for isolated unit test
+    service.transfers.set('t1', { id: 't1', fileName: 'f1.txt', fileSize: 100, status: 'completed', direction: 'send', transferredBytes: 100, progress: 100, speed: 0 });
+    // @ts-expect-error accessing private property for isolated unit test
+    service.transfers.set('t2', { id: 't2', fileName: 'f2.txt', fileSize: 200, status: 'failed', direction: 'receive', transferredBytes: 50, progress: 25, speed: 0, error: 'fail' });
+    // @ts-expect-error accessing private property for isolated unit test
+    service.transfers.set('t3', { id: 't3', fileName: 'f3.txt', fileSize: 300, status: 'transferring', direction: 'send', transferredBytes: 150, progress: 50, speed: 1024 });
+
+    expect(service.getAllTransfers().length).toBe(3);
+
+    service.clearAllCompletedTransfers();
+
+    const remaining = service.getAllTransfers();
+    expect(remaining.length).toBe(1);
+    expect(remaining[0].id).toBe('t3');
+    expect(remaining[0].status).toBe('transferring');
+  });
 });
 

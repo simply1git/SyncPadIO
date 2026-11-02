@@ -698,6 +698,23 @@ export default function App() {
     updateLastActivity(true);
   };
 
+  const handleSendP2PFiles = async (fileList: FileList | File[]) => {
+    if (!p2pServiceRef.current) return;
+    if (userCount <= 1) {
+      toast('Connect another peer in this room to stream directly', { icon: '⚡' });
+      return;
+    }
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+    if (files.length === 1) {
+      toast(`Streaming ${files[0].name} directly via P2P…`, { icon: '⚡' });
+    } else {
+      toast(`Streaming ${files.length} files directly via P2P…`, { icon: '⚡' });
+    }
+    await p2pServiceRef.current.sendFiles(files);
+    updateLastActivity(true);
+  };
+
   const handleCancelP2PTransfer = (transferId: string) => {
     p2pServiceRef.current?.cancelTransfer(transferId);
     toast.error('P2P transfer cancelled');
@@ -705,6 +722,10 @@ export default function App() {
 
   const handleClearP2PTransfer = (transferId: string) => {
     p2pServiceRef.current?.clearTransfer(transferId);
+  };
+
+  const handleClearAllCompletedP2P = () => {
+    p2pServiceRef.current?.clearAllCompletedTransfers();
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -792,8 +813,10 @@ export default function App() {
                 encryptionKey={encryptionKey}
                 onUploadFiles={handleUploadFiles}
                 onSendP2PFile={handleSendP2PFile}
+                onSendP2PFiles={handleSendP2PFiles}
                 onCancelP2PTransfer={handleCancelP2PTransfer}
                 onClearP2PTransfer={handleClearP2PTransfer}
+                onClearAllCompletedP2P={handleClearAllCompletedP2P}
                 onCancelUpload={handleCancelUpload}
                 onDeleteFile={handleDeleteFile}
                 onPreviewFile={setPreviewFile}

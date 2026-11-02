@@ -27,3 +27,5 @@ server/uploads/*
 
 .vercel
 .env*.local
+
+fiverr_gallery/

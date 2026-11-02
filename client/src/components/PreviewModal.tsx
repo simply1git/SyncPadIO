@@ -42,7 +42,10 @@ export function PreviewModal({ file, roomId, encryptionKey, onClose }: Props) {
     const loadContent = async () => {
       setIsLoading(true);
       try {
-        if (encrypted || roomId) {
+        if (file.url.startsWith('blob:') && file.is_encrypted === false) {
+          // Direct in-memory blob (e.g. WebRTC P2P stream or already decrypted)
+          setPreviewUrl(file.url);
+        } else if (encrypted || roomId) {
           const res = await fetch(file.url);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const buf = await res.arrayBuffer();
@@ -73,7 +76,7 @@ export function PreviewModal({ file, roomId, encryptionKey, onClose }: Props) {
         URL.revokeObjectURL(createdBlobUrl);
       }
     };
-  }, [file.url, file.name, encrypted, roomId, encryptionKey]);
+  }, [file.url, file.name, file.is_encrypted, encrypted, roomId, encryptionKey]);
 
   const handleDownload = async () => {
     if (isDownloading) return;

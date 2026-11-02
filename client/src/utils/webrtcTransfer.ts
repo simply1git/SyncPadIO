@@ -151,6 +151,19 @@ export class WebRTCTransferService {
   }
 
   /**
+   * Initiate sending multiple files directly to peers via WebRTC DataChannel
+   */
+  public async sendFiles(files: File[] | FileList, targetUserId?: string): Promise<string[]> {
+    const list = Array.from(files);
+    const ids: string[] = [];
+    for (const file of list) {
+      const id = await this.sendFile(file, targetUserId);
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  /**
    * Handle incoming WebRTC signaling message
    */
   public async handleSignal(signal: WebRTCSignalPayload): Promise<void> {
@@ -383,10 +396,22 @@ export class WebRTCTransferService {
       dc.send(JSON.stringify({ type: 'complete', id: transferId, totalChunks }));
     }
 
+    let senderBlobUrl: string | undefined;
+    try {
+      if (typeof URL !== 'undefined' && URL.createObjectURL) {
+        senderBlobUrl = URL.createObjectURL(file);
+      }
+    } catch {
+      // Ignored
+    }
+
     this.updateTransfer(transferId, {
       status: 'completed',
       transferredBytes: file.size,
       progress: 100,
+      speed: 0,
+      blob: file,
+      downloadUrl: senderBlobUrl,
     });
   }
 
@@ -428,6 +453,16 @@ export class WebRTCTransferService {
     }
     this.transfers.delete(transferId);
     this.notify();
+  }
+
+  public clearAllCompletedTransfers(): void {
+    const idsToClear: string[] = [];
+    this.transfers.forEach((t, id) => {
+      if (t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled') {
+        idsToClear.push(id);
+      }
+    });
+    idsToClear.forEach((id) => this.clearTransfer(id));
   }
 
   public cleanup(): void {
