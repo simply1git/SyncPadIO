@@ -60,8 +60,8 @@ export interface P2PTunnelState {
 }
 
 export interface WebRTCSignalPayload {
-  type: 'offer' | 'answer' | 'candidate' | 'cancel' | 'request';
-  transferId: string;
+  type: 'offer' | 'answer' | 'candidate' | 'cancel' | 'request' | 'peer-ready';
+  transferId?: string;
   fromUserId: string;
   toUserId?: string;
   sdp?: RTCSessionDescriptionInit;

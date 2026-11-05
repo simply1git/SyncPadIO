@@ -228,7 +228,12 @@ export default function App() {
   };
 
   // ── Join Room Realtime with Local-First IndexedDB Hydration ─────────────
-  const joinRoomRealtime = useCallback(async (id: string, customKey?: string, initialKeep24h?: boolean) => {
+  const joinRoomRealtime = useCallback(async (
+    id: string,
+    customKey?: string,
+    initialKeep24h?: boolean,
+    isCreate = false
+  ) => {
     const cleanId = extractRoomCode(id);
     if (!cleanId) {
       toast.error('Invalid room code');
@@ -237,52 +242,36 @@ export default function App() {
 
     setIsJoining(true);
 
-    // Identify if current user is the room creator
-    try {
-      const creatorId = localStorage.getItem('syncpad_creator_' + cleanId);
-      setIsCreator(creatorId === myUserId);
-    } catch {
-      setIsCreator(false);
-    }
-
     // 1. Resolve encryption key (from param or URL hash if explicitly provided)
     const hashKey = getRoomKeyFromHash();
     const resolvedKey = customKey || hashKey || undefined;
 
-    setEncryptionKey(resolvedKey);
-    if (resolvedKey) {
-      setRoomKeyToHash(resolvedKey);
-    }
-
-    // Save room record offline for zero-latency load next time
-    await saveRoomOffline(cleanId, resolvedKey);
-
-    // Check if room is locked via Biometric Passkey on this device
-    if (hasRoomPasskey(cleanId) && isRoomLocked(cleanId)) {
-      setIsLocked(true);
-    }
-
-    // 2. Local-First Hydration: Immediately load cached snippets & files from IndexedDB
-    const [cachedSnips, cachedFls] = await Promise.all([
-      getCachedSnippets(cleanId),
-      getCachedFiles(cleanId)
-    ]);
-    if (cachedSnips.length) setSnippets(cachedSnips);
-    if (cachedFls.length) setFiles(cachedFls);
-
-    setRoomId(cleanId);
-    const urlPath = `?room=${cleanId}${resolvedKey ? `#k=${resolvedKey}` : ''}`;
-    window.history.replaceState({}, '', urlPath);
-
-    // 3. If offline, stay in local workspace without throwing network errors
+    // 2. If offline, stay in local workspace without throwing network errors
     if (!navigator.onLine) {
+      if (!isCreate) {
+        const [cachedSnips, cachedFls] = await Promise.all([
+          getCachedSnippets(cleanId),
+          getCachedFiles(cleanId)
+        ]);
+        if (!cachedSnips.length && !cachedFls.length) {
+          toast.error('You are offline and room was not cached on this device.');
+          setIsJoining(false);
+          return;
+        }
+        setSnippets(cachedSnips);
+        setFiles(cachedFls);
+      }
+      setRoomId(cleanId);
+      setEncryptionKey(resolvedKey);
+      if (resolvedKey) setRoomKeyToHash(resolvedKey);
+      await saveRoomOffline(cleanId, resolvedKey);
       setConnStatus('offline');
       setIsJoined(true);
       setIsJoining(false);
       return;
     }
 
-    // 4. Online flow: check room in Supabase & subscribe
+    // 3. Online flow: verify room exists or create new session in Supabase
     try {
       const now = Date.now();
 
@@ -296,24 +285,22 @@ export default function App() {
         console.warn('Room check notice:', fetchErr);
       }
 
-      // Determine expiration mode: default ephemeral vs creator-set 24h
       const is24h = existingRoom?.status === 'keep-24h' || (!existingRoom && initialKeep24h === true);
-      setKeepAlive24h(is24h);
-
       const ttlCutoff = is24h ? TWENTY_FOUR_HOURS_MS : DEFAULT_EPHEMERAL_TIMEOUT_MS;
-      const isExpired = existingRoom?.last_activity && (now - existingRoom.last_activity > ttlCutoff);
+      const isExpired = Boolean(existingRoom?.last_activity && (now - existingRoom.last_activity > ttlCutoff));
 
-      if (isExpired) {
-        await deleteRoom();
-        const initialStatus = is24h ? 'keep-24h' : 'active';
-        await supabase.from('rooms').upsert({
-          id: cleanId,
-          created_at: now,
-          last_activity: now,
-          status: initialStatus
-        }, { onConflict: 'id' });
-        toast(is24h ? 'Previous 24-hour session expired. Fresh session started.' : 'Previous session expired. Fresh session started.', { icon: '⏳' });
-      } else if (!existingRoom) {
+      if (isCreate) {
+        // Creator wants to create a session
+        if (existingRoom && !isExpired) {
+          toast.error(`Room "${cleanId}" is already active. Please enter a different code or join it.`);
+          setIsJoining(false);
+          return;
+        }
+
+        if (isExpired) {
+          await deleteRoom();
+        }
+
         const initialStatus = initialKeep24h ? 'keep-24h' : 'active';
         const { error: upsertError } = await supabase.from('rooms').upsert({
           id: cleanId,
@@ -324,19 +311,65 @@ export default function App() {
 
         if (upsertError) {
           console.error('Room creation error:', upsertError);
-          // If network failed mid-flight, fall back to offline mode
-          if (!navigator.onLine) {
-            setConnStatus('offline');
-            setIsJoined(true);
-            return;
-          }
-          toast.error(`Could not enter room: ${upsertError.message || 'Database error'}`);
+          toast.error(`Could not create room: ${upsertError.message || 'Database error'}`);
           setIsJoining(false);
           return;
         }
+        setKeepAlive24h(Boolean(initialKeep24h));
       } else {
+        // Joining existing room (strictly check existence)
+        if (!existingRoom) {
+          toast.error(`Room "${cleanId}" not found. Check code or create a session.`);
+          setIsJoining(false);
+          if (window.location.search.includes('room=')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          return;
+        }
+
+        if (isExpired) {
+          await deleteRoom();
+          toast.error(`Session "${cleanId}" has expired.`);
+          setIsJoining(false);
+          if (window.location.search.includes('room=')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          return;
+        }
+
+        setKeepAlive24h(is24h);
         await supabase.from('rooms').update({ last_activity: now }).eq('id', cleanId);
       }
+
+      // 4. Session verified or created - Hydrate session state!
+      try {
+        const creatorId = localStorage.getItem('syncpad_creator_' + cleanId);
+        setIsCreator(creatorId === myUserId);
+      } catch {
+        setIsCreator(false);
+      }
+
+      setRoomId(cleanId);
+      setEncryptionKey(resolvedKey);
+      if (resolvedKey) {
+        setRoomKeyToHash(resolvedKey);
+      }
+
+      await saveRoomOffline(cleanId, resolvedKey);
+
+      if (hasRoomPasskey(cleanId) && isRoomLocked(cleanId)) {
+        setIsLocked(true);
+      }
+
+      const [cachedSnips, cachedFls] = await Promise.all([
+        getCachedSnippets(cleanId),
+        getCachedFiles(cleanId)
+      ]);
+      if (cachedSnips.length) setSnippets(cachedSnips);
+      if (cachedFls.length) setFiles(cachedFls);
+
+      const urlPath = `?room=${cleanId}${resolvedKey ? `#k=${resolvedKey}` : ''}`;
+      window.history.replaceState({}, '', urlPath);
 
       if (channelRef.current) await supabase.removeChannel(channelRef.current);
 
@@ -414,7 +447,7 @@ export default function App() {
         }
 
         // Automatic Pre-Warming: find remote peer userId and pre-warm P2P connection!
-        if (count > 1 && p2pServiceRef.current) {
+        if (count > 1 && p2pServiceRef.current && ch.state === 'joined') {
           let peerUser: string | undefined;
           for (const key of Object.keys(state)) {
             const list = state[key] as Array<{ user?: string }>;
@@ -466,6 +499,20 @@ export default function App() {
         if (status === 'SUBSCRIBED') {
           setConnStatus('connected');
           await ch.track({ user: myUserId, joined: Date.now() });
+
+          // Broadcast peer-ready to existing peers
+          try {
+            await ch.send({
+              type: 'broadcast',
+              event: 'webrtc-signal',
+              payload: {
+                type: 'peer-ready',
+                fromUserId: myUserId,
+              },
+            });
+          } catch {
+            // Ignored
+          }
         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           setConnStatus('offline');
         }
@@ -473,12 +520,16 @@ export default function App() {
 
       channelRef.current = ch;
       if (p2pServiceRef.current) {
-        p2pServiceRef.current.setSignalSender((signal) => {
-          ch.send({
-            type: 'broadcast',
-            event: 'webrtc-signal',
-            payload: signal,
-          });
+        p2pServiceRef.current.setSignalSender(async (signal) => {
+          try {
+            await ch.send({
+              type: 'broadcast',
+              event: 'webrtc-signal',
+              payload: signal,
+            });
+          } catch (e) {
+            console.warn('[WebRTC Signal Send Notice]', e);
+          }
         });
       }
       setConnStatus('connecting');
@@ -511,7 +562,7 @@ export default function App() {
           const fallbackGuest = 'Guest-' + Math.random().toString(36).slice(2, 6).toUpperCase();
           handleUpdateUserName(fallbackGuest);
         }
-        joinRoomRealtime(clean);
+        joinRoomRealtime(clean, undefined, undefined, false);
       }
     }
   }, [joinRoomRealtime, userName]);
@@ -524,7 +575,7 @@ export default function App() {
     const newRoomId = generateRoomId();
     try { localStorage.setItem('syncpad_creator_' + newRoomId, myUserId); } catch { /* ignore */ }
     setIsCreator(true);
-    joinRoomRealtime(newRoomId, undefined, keep24h);
+    joinRoomRealtime(newRoomId, undefined, keep24h, true);
   };
 
   const handleCreateCustomSession = async (customCode: string, keep24h = false) => {
@@ -533,7 +584,7 @@ export default function App() {
     }
     try { localStorage.setItem('syncpad_creator_' + customCode, myUserId); } catch { /* ignore */ }
     setIsCreator(true);
-    joinRoomRealtime(customCode, undefined, keep24h);
+    joinRoomRealtime(customCode, undefined, keep24h, true);
   };
 
   const handleToggle24hRetention = async (enabled: boolean) => {
@@ -785,7 +836,7 @@ export default function App() {
           onUpdateUserName={handleUpdateUserName}
           onCreateRoom={handleCreateNewSession}
           onCreateCustomRoom={handleCreateCustomSession}
-          onJoinRoom={(code, customKey) => joinRoomRealtime(code, customKey)}
+          onJoinRoom={(code, customKey) => joinRoomRealtime(code, customKey, undefined, false)}
           onOpenInstallModal={() => setShowInstallModal(true)}
           isInstallable={isInstallable && !isInstalled}
           isJoining={isJoining}

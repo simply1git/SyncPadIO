@@ -181,6 +181,33 @@ export class WebRTCTransferService {
     }
   }
 
+  private closeActivePipe(): void {
+    if (this.controlDC) {
+      try {
+        this.controlDC.close();
+      } catch {
+        // Ignored
+      }
+      this.controlDC = null;
+    }
+    if (this.streamDC) {
+      try {
+        this.streamDC.close();
+      } catch {
+        // Ignored
+      }
+      this.streamDC = null;
+    }
+    if (this.persistentPC) {
+      try {
+        this.persistentPC.close();
+      } catch {
+        // Ignored
+      }
+      this.persistentPC = null;
+    }
+  }
+
   private async flushPendingCandidates(transferId: string, pc: RTCPeerConnection): Promise<void> {
     const buffered = this.pendingCandidates.get(transferId);
     if (buffered && buffered.length > 0) {
@@ -284,16 +311,20 @@ export class WebRTCTransferService {
 
     const timeout = setTimeout(() => {
       if (this.isConnectingPipe) {
-        console.warn('[WebRTC Tunnel] Peer connection handshake timed out');
         this.clearConnectionTimeout(transferId);
         this.isConnectingPipe = false;
+        this.closeActivePipe();
         this.updateTunnelState({ status: 'disconnected' });
-        this.updateTransfer(transferId, {
-          status: 'failed',
-          error: 'Connection timed out. Ensure peer is online in the room.',
-        });
-        this.sendQueue.shift();
-        this.processNextInSendQueue();
+
+        if (!transferId.startsWith('prewarm_')) {
+          console.warn('[WebRTC Tunnel] Peer connection handshake timed out');
+          this.updateTransfer(transferId, {
+            status: 'failed',
+            error: 'Connection timed out. Ensure peer is online in the room.',
+          });
+          this.sendQueue.shift();
+          this.processNextInSendQueue();
+        }
       }
     }, CONNECTION_TIMEOUT_MS);
     this.connectionTimeouts.set(transferId, timeout);
@@ -357,11 +388,14 @@ export class WebRTCTransferService {
     } catch (err) {
       this.clearConnectionTimeout(transferId);
       this.isConnectingPipe = false;
+      this.closeActivePipe();
       this.updateTunnelState({ status: 'disconnected' });
-      const msg = err instanceof Error ? err.message : 'WebRTC initialization failed';
-      this.updateTransfer(transferId, { status: 'failed', error: msg });
-      this.sendQueue.shift();
-      this.processNextInSendQueue();
+      if (!transferId.startsWith('prewarm_')) {
+        const msg = err instanceof Error ? err.message : 'WebRTC initialization failed';
+        this.updateTransfer(transferId, { status: 'failed', error: msg });
+        this.sendQueue.shift();
+        this.processNextInSendQueue();
+      }
     }
   }
 
@@ -424,7 +458,14 @@ export class WebRTCTransferService {
 
     const { type, transferId, sdp, candidate } = signal;
 
-    if (type === 'cancel') {
+    if (type === 'peer-ready') {
+      if (this.myUserId < signal.fromUserId && this.tunnelState.status !== 'connected' && !this.isConnectingPipe) {
+        this.prewarm(signal.fromUserId);
+      }
+      return;
+    }
+
+    if (type === 'cancel' && transferId) {
       this.cancelTransfer(transferId, false);
       return;
     }
@@ -438,7 +479,7 @@ export class WebRTCTransferService {
       const pc = this.persistentPC;
       if (pc && pc.signalingState !== 'stable') {
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-        await this.flushPendingCandidates(transferId, pc);
+        if (transferId) await this.flushPendingCandidates(transferId, pc);
       }
       return;
     }
@@ -451,7 +492,7 @@ export class WebRTCTransferService {
         } catch (e) {
           console.warn('[WebRTC Candidate Notice]', e);
         }
-      } else {
+      } else if (transferId) {
         const list = this.pendingCandidates.get(transferId) || [];
         list.push(candidate);
         this.pendingCandidates.set(transferId, list);
@@ -460,14 +501,11 @@ export class WebRTCTransferService {
   }
 
   private async handleIncomingOffer(signal: WebRTCSignalPayload): Promise<void> {
-    const { transferId, sdp, fromUserId } = signal;
+    const transferId = signal.transferId || 'conn_' + Date.now();
+    const { sdp, fromUserId } = signal;
     if (!sdp) return;
 
-    if (this.persistentPC && this.persistentPC.connectionState === 'closed') {
-      this.persistentPC = null;
-      this.controlDC = null;
-      this.streamDC = null;
-    }
+    this.closeActivePipe();
 
     try {
       const pc = new RTCPeerConnection(DEFAULT_RTC_CONFIG);
@@ -855,33 +893,7 @@ export class WebRTCTransferService {
     this.sendQueue = [];
     this.activeSenderTransferId = null;
     this.isConnectingPipe = false;
-
-    if (this.controlDC) {
-      try {
-        this.controlDC.close();
-      } catch {
-        // Ignored
-      }
-      this.controlDC = null;
-    }
-
-    if (this.streamDC) {
-      try {
-        this.streamDC.close();
-      } catch {
-        // Ignored
-      }
-      this.streamDC = null;
-    }
-
-    if (this.persistentPC) {
-      try {
-        this.persistentPC.close();
-      } catch {
-        // Ignored
-      }
-      this.persistentPC = null;
-    }
+    this.closeActivePipe();
 
     this.transfers.forEach((t) => {
       if (t.downloadUrl) {

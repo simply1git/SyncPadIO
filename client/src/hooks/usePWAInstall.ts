@@ -52,9 +52,9 @@ export function usePWAInstall() {
       const choice = await deferredPrompt.userChoice;
       if (choice.outcome === 'accepted') {
         setIsInstalled(true);
-        setDeferredPrompt(null);
-        return true;
       }
+      setDeferredPrompt(null);
+      return choice.outcome === 'accepted';
     } catch (e) {
       console.warn('[PWA Install Error]', e);
     }
