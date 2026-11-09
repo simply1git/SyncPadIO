@@ -88,6 +88,12 @@ export default function App() {
   const desertionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSyncingRef = useRef(false);
   const [myUserId] = useState(getPersistentUserId);
+  const isJoinedRef = useRef(isJoined);
+  const roomIdRef = useRef(roomId);
+  useEffect(() => {
+    isJoinedRef.current = isJoined;
+    roomIdRef.current = roomId;
+  }, [isJoined, roomId]);
 
   // ── Initialize P2P Service ──────────────────────────────────────────────
   useEffect(() => {
@@ -123,13 +129,14 @@ export default function App() {
   // ── Room Lifecycle Hook ─────────────────────────────────────────────────
   const onRoomDeleted = useCallback(() => {
     toast.error('Session was closed or expired');
-    if (roomId) clearRoomOffline(roomId);
+    const currentId = roomIdRef.current;
+    if (currentId) clearRoomOffline(currentId);
     setIsJoined(false);
     setRoomId('');
     setSnippets([]);
     setFiles([]);
     window.history.replaceState({}, '', window.location.pathname);
-  }, [roomId]);
+  }, []);
 
   const { updateLastActivity, deleteRoom } = useRoomLifecycle({
     roomId,
@@ -237,6 +244,11 @@ export default function App() {
     const cleanId = extractRoomCode(id);
     if (!cleanId) {
       toast.error('Invalid room code');
+      return;
+    }
+
+    // If user is already active in this room, prevent duplicate join execution
+    if (isJoinedRef.current && roomIdRef.current === cleanId) {
       return;
     }
 
@@ -490,6 +502,11 @@ export default function App() {
           }
         }
       )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'rooms', filter: `id=eq.${cleanId}` },
+        () => {
+          onRoomDeleted();
+        }
+      )
       .on('broadcast', { event: 'webrtc-signal' }, (res) => {
         if (p2pServiceRef.current && res.payload) {
           p2pServiceRef.current.handleSignal(res.payload);
@@ -549,15 +566,19 @@ export default function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [myUserId, deleteRoom, flushPendingOfflineSnippets, updateLastActivity]);
+  }, [myUserId, deleteRoom, flushPendingOfflineSnippets, updateLastActivity, onRoomDeleted]);
 
   // ── URL Parameter Auto-Join ─────────────────────────────────────────────
+  const hasAutoJoinedRef = useRef(false);
+
   useEffect(() => {
+    if (hasAutoJoinedRef.current) return;
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     if (roomParam) {
       const clean = extractRoomCode(roomParam);
       if (clean) {
+        hasAutoJoinedRef.current = true;
         if (!userName.trim()) {
           const fallbackGuest = 'Guest-' + Math.random().toString(36).slice(2, 6).toUpperCase();
           handleUpdateUserName(fallbackGuest);
