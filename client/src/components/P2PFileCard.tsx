@@ -139,9 +139,13 @@ export function P2PFileCard({
           {transfer.fileName}
         </p>
         <div className="flex flex-col gap-0.5 mb-2.5 text-xs text-zinc-400">
-          {transfer.senderName && (
+          {transfer.direction === 'send' ? (
+            <span className="truncate text-[11px] font-medium text-accent">
+              Sent by you
+            </span>
+          ) : (
             <span className="truncate text-[11px] text-zinc-400">
-              Uploaded by {transfer.senderName}
+              Received from {transfer.senderName || 'Peer'}
             </span>
           )}
           <span className="text-[11px] font-mono text-zinc-500 whitespace-nowrap">

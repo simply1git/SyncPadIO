@@ -27,6 +27,7 @@ interface Props {
   userCount?: number;
   roomId: string;
   encryptionKey?: string;
+  currentUserName?: string;
   onUploadFiles: (files: FileList | null) => void;
   onSendP2PFile?: (file: File) => void;
   onSendP2PFiles?: (files: FileList | File[]) => void;
@@ -48,6 +49,7 @@ export function FileManager({
   userCount = 1,
   roomId,
   encryptionKey,
+  currentUserName,
   onUploadFiles,
   onSendP2PFile,
   onSendP2PFiles,
@@ -585,6 +587,7 @@ export function FileManager({
                       file={f}
                       roomId={roomId}
                       encryptionKey={encryptionKey}
+                      currentUserName={currentUserName}
                       selected={selectedFileIds.has(f.id)}
                       onSelect={toggleFileSelection}
                       onDelete={onDeleteFile}

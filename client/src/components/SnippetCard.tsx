@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
 import { isEncrypted, decryptText } from '../utils/crypto';
-import { timeAgo, detectCodeLanguage } from '../utils/helpers';
+import { timeAgo, detectCodeLanguage, getUserAvatarColor } from '../utils/helpers';
 import { Snippet } from '../types';
 
 interface Props {
@@ -14,10 +14,11 @@ interface Props {
   myUserId: string;
   roomId: string;
   encryptionKey?: string;
+  disambiguatedName?: string;
   onDelete: (id: string) => void;
 }
 
-export function SnippetCard({ snippet, myUserId, roomId, encryptionKey, onDelete }: Props) {
+export function SnippetCard({ snippet, myUserId, roomId, encryptionKey, disambiguatedName, onDelete }: Props) {
   const [copied, setCopied] = useState(false);
   const [decrypted, setDecrypted] = useState<string | null>(null);
   const [decrypting, setDecrypting] = useState(false);
@@ -65,16 +66,34 @@ export function SnippetCard({ snippet, myUserId, roomId, encryptionKey, onDelete
       {/* Header */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
-          <div
-            className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-            style={{ background: `hsl(${Math.abs(snippet.sender_id.charCodeAt(0) * 37) % 360}, 60%, 45%)` }}
-            aria-hidden="true"
-          >
-            {(snippet.sender_name?.[0] || snippet.sender_id[0])?.toUpperCase()}
-          </div>
+          {(() => {
+            const avatarColor = getUserAvatarColor(snippet.sender_id);
+            const initials = (snippet.sender_name?.[0] || snippet.sender_id[0] || '?').toUpperCase();
+            return (
+              <div
+                className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-sm"
+                style={{
+                  background: avatarColor.bg,
+                  color: avatarColor.text,
+                  border: `1px solid ${avatarColor.border}`,
+                }}
+                aria-hidden="true"
+              >
+                {initials}
+              </div>
+            );
+          })()}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
-              {snippet.sender_name || 'Anonymous'}
+            <span className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--text)' }}>
+              <span>{disambiguatedName || snippet.sender_name || 'Anonymous'}</span>
+              {isMine && (
+                <span
+                  className="text-[10px] font-bold px-1 py-0.2 rounded"
+                  style={{ background: 'rgba(56, 189, 248, 0.18)', color: 'var(--accent)' }}
+                >
+                  You
+                </span>
+              )}
             </span>
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>·</span>
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{timeStr}</span>

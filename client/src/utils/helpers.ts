@@ -219,3 +219,143 @@ export function detectCodeLanguage(code: string): string {
   }
   return 'text';
 }
+
+/**
+ * Deterministic high-contrast avatar color generator based on full-string hashing.
+ * Avoids collisions where different users starting with the same prefix receive identical colors.
+ */
+export function getUserAvatarColor(userId: string): { bg: string; text: string; border: string } {
+  if (!userId) {
+    return { bg: 'hsl(217, 75%, 50%)', text: '#ffffff', border: 'hsl(217, 85%, 65%)' };
+  }
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = (hash << 5) - hash + userId.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return {
+    bg: `hsl(${hue}, 68%, 46%)`,
+    text: '#ffffff',
+    border: `hsl(${hue}, 75%, 62%)`,
+  };
+}
+
+/**
+ * Ensures unique file names inside a batch zip archive.
+ * Appends standard (1), (2) counters so identical filenames are never silently overwritten.
+ */
+export function getUniqueZipFileName(fileName: string, existingNames: Set<string>): string {
+  const safeName = fileName.trim() || `file-${Date.now()}`;
+  if (!existingNames.has(safeName)) {
+    existingNames.add(safeName);
+    return safeName;
+  }
+
+  const lastDot = safeName.lastIndexOf('.');
+  const baseName = lastDot > 0 ? safeName.slice(0, lastDot) : safeName;
+  const ext = lastDot > 0 ? safeName.slice(lastDot) : '';
+
+  let counter = 1;
+  let candidate = `${baseName} (${counter})${ext}`;
+  while (existingNames.has(candidate)) {
+    counter++;
+    candidate = `${baseName} (${counter})${ext}`;
+  }
+  existingNames.add(candidate);
+  return candidate;
+}
+
+export interface RawParticipant {
+  userId: string;
+  userName?: string;
+  joined?: number;
+}
+
+export interface DisambiguatedParticipant {
+  userId: string;
+  userName: string;
+  displayName: string;
+  joined: number;
+  isMe: boolean;
+  color: { bg: string; text: string; border: string };
+}
+
+/**
+ * Disambiguates peer names in a room when duplicate display names occur.
+ * Local user receives '(You)', while colliding peer names receive a short distinct tag '#<ID>'.
+ */
+export function disambiguateParticipants(
+  rawList: RawParticipant[],
+  myUserId: string
+): DisambiguatedParticipant[] {
+  // Deduplicate by userId
+  const uniqueMap = new Map<string, RawParticipant>();
+  for (const item of rawList) {
+    if (item.userId) {
+      if (!uniqueMap.has(item.userId) || (item.joined && (uniqueMap.get(item.userId)!.joined || 0) < item.joined)) {
+        uniqueMap.set(item.userId, item);
+      }
+    }
+  }
+
+  // Count occurrences of each normalized name
+  const nameCounts = new Map<string, number>();
+  for (const item of uniqueMap.values()) {
+    const norm = (item.userName?.trim() || 'Anonymous').toLowerCase();
+    nameCounts.set(norm, (nameCounts.get(norm) || 0) + 1);
+  }
+
+  const result: DisambiguatedParticipant[] = [];
+  for (const item of uniqueMap.values()) {
+    const isMe = item.userId === myUserId;
+    const cleanName = item.userName?.trim() || (isMe ? 'You' : 'Anonymous');
+    const norm = cleanName.toLowerCase();
+    const hasCollision = (nameCounts.get(norm) || 0) > 1;
+
+    let displayName = cleanName;
+    if (isMe) {
+      displayName = `${cleanName === 'You' ? 'You' : `${cleanName} (You)`}`;
+    } else if (hasCollision) {
+      const tag = item.userId.slice(-4).toUpperCase();
+      displayName = `${cleanName} #${tag}`;
+    }
+
+    result.push({
+      userId: item.userId,
+      userName: cleanName,
+      displayName,
+      joined: item.joined || Date.now(),
+      isMe,
+      color: getUserAvatarColor(item.userId),
+    });
+  }
+
+  // Current user first, then by join time
+  return result.sort((a, b) => {
+    if (a.isMe) return -1;
+    if (b.isMe) return 1;
+    return a.joined - b.joined;
+  });
+}
+
+/**
+ * Formats a sender display name with (You) attribution and collision avoidance.
+ */
+export function formatSenderDisplayName(
+  senderId: string,
+  rawName: string | undefined,
+  myUserId: string,
+  participantMap?: Map<string, DisambiguatedParticipant>
+): string {
+  if (senderId === myUserId) {
+    const name = rawName?.trim() || 'You';
+    return name === 'You' ? 'You' : `${name} (You)`;
+  }
+  if (participantMap && participantMap.has(senderId)) {
+    return participantMap.get(senderId)!.displayName;
+  }
+  const name = rawName?.trim() || 'Anonymous';
+  return name;
+}
+

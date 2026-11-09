@@ -1,11 +1,14 @@
+import { useState, useRef, useEffect } from 'react';
 import { Share2, Users, LogOut, Sun, Moon, ShieldCheck, WifiOff, Fingerprint, Clock, Zap, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatusType } from '../types';
+import { DisambiguatedParticipant } from '../utils/helpers';
 
 interface Props {
   roomId: string;
   userName: string;
   userCount: number;
+  participants?: DisambiguatedParticipant[];
   connStatus: ConnectionStatusType;
   darkMode: boolean;
   hasEncryptionKey: boolean;
@@ -25,6 +28,7 @@ export function RoomHeader({
   roomId,
   userName,
   userCount,
+  participants = [],
   connStatus,
   darkMode,
   hasEncryptionKey,
@@ -39,6 +43,27 @@ export function RoomHeader({
   isInstallable = true,
   onLeaveRoom,
 }: Props) {
+  const [showParticipants, setShowParticipants] = useState(false);
+  const participantsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showParticipants) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (participantsRef.current && !participantsRef.current.contains(e.target as Node)) {
+        setShowParticipants(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowParticipants(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showParticipants]);
+
   const copyRoomCode = () => {
     navigator.clipboard.writeText(roomId);
     toast.success('Room code copied!');
@@ -151,13 +176,109 @@ export function RoomHeader({
 
       {/* Right controls */}
       <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
-        <div
-          className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded"
-          style={{ color: 'var(--text-muted)' }}
-          aria-label={`${userCount} active users`}
-        >
-          <Users size={13} className={userCount > 1 ? 'text-emerald-400' : 'text-zinc-500'} />
-          <span className="font-mono text-xs">{userCount}</span>
+        <div className="relative" ref={participantsRef}>
+          <button
+            onClick={() => setShowParticipants(prev => !prev)}
+            className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md transition-all hover:bg-white/5 active:scale-95 cursor-pointer"
+            style={{
+              color: userCount > 1 ? '#34d399' : 'var(--text-muted)',
+              border: userCount > 1 ? '1px solid rgba(52, 211, 153, 0.25)' : '1px solid transparent',
+              background: userCount > 1 ? 'rgba(52, 211, 153, 0.08)' : 'transparent',
+            }}
+            title="View active room participants"
+            aria-label={`${userCount} active users. Click to view list.`}
+            aria-expanded={showParticipants}
+            aria-haspopup="true"
+          >
+            <Users size={13} className={userCount > 1 ? 'text-emerald-400' : 'text-zinc-500'} />
+            <span className="font-mono text-xs font-semibold">{userCount}</span>
+          </button>
+
+          {/* Participants Dropdown */}
+          {showParticipants && (
+            <div
+              className="absolute right-0 top-full mt-2 w-64 rounded-xl shadow-2xl p-3 z-50 slide-up"
+              style={{
+                background: 'rgba(18, 20, 29, 0.96)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid var(--border)',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+              }}
+              role="dialog"
+              aria-label="Active participants list"
+            >
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                <span className="text-xs font-semibold tracking-wide" style={{ color: 'var(--text)' }}>
+                  Active Peers ({participants.length || userCount})
+                </span>
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live Sync
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                {participants.length > 0 ? (
+                  participants.map((p) => (
+                    <div
+                      key={p.userId}
+                      className="flex items-center justify-between p-1.5 rounded-lg transition-colors hover:bg-white/5"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                          style={{
+                            background: p.color.bg,
+                            color: p.color.text,
+                            border: `1px solid ${p.color.border}`,
+                          }}
+                        >
+                          {(p.userName[0] || '?').toUpperCase()}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span
+                            className="text-xs font-medium truncate"
+                            style={{ color: p.isMe ? 'var(--accent)' : 'var(--text)' }}
+                          >
+                            {p.displayName}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 font-mono">
+                            {p.isMe ? 'Your session' : `ID: ${p.userId.slice(-6).toUpperCase()}`}
+                          </span>
+                        </div>
+                      </div>
+                      {p.isMe && (
+                        <button
+                          onClick={() => {
+                            setShowParticipants(false);
+                            onOpenNameModal();
+                          }}
+                          className="btn-ghost text-[10px] px-1.5 py-0.5 rounded text-accent hover:underline flex-shrink-0"
+                        >
+                          Change
+                        </button>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-xs text-zinc-400 py-1 text-center">
+                    {userName || 'You'} (1 online)
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-zinc-500 flex items-center justify-between">
+                <span>Direct WebRTC & Realtime</span>
+                <button
+                  onClick={() => setShowParticipants(false)}
+                  className="text-zinc-400 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <button

@@ -6,6 +6,7 @@
 
 import JSZip from 'jszip';
 import { safeDecryptFile, getMimeTypeFromName } from './crypto';
+import { getUniqueZipFileName } from './helpers';
 
 export interface FileToDownload {
   name: string;
@@ -30,6 +31,7 @@ export const downloadFilesAsZip = async (
   }
 
   const zip = new JSZip();
+  const existingNames = new Set<string>();
   let completed = 0;
 
   try {
@@ -49,8 +51,8 @@ export const downloadFilesAsZip = async (
           ? await safeDecryptFile(buf, roomId || '', encryptionKey, mimeType)
           : new Blob([buf], { type: mimeType });
 
-        const fileName = file.name || `file-${Date.now()}`;
-        zip.file(fileName, blob);
+        const uniqueName = getUniqueZipFileName(file.name || 'file', existingNames);
+        zip.file(uniqueName, blob);
         completed++;
         onProgress?.(completed, files.length);
       } catch (error: unknown) {

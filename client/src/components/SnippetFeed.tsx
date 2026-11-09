@@ -3,6 +3,7 @@ import { Search, ClipboardList, Lock, Unlock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SnippetCard } from './SnippetCard';
 import { isEncrypted } from '../utils/crypto';
+import { DisambiguatedParticipant } from '../utils/helpers';
 import { Snippet } from '../types';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   myUserId: string;
   roomId: string;
   encryptionKey?: string;
+  participantMap?: Map<string, DisambiguatedParticipant>;
   onAddSnippet: (text: string, encrypted: boolean) => Promise<void>;
   onDeleteSnippet: (id: string) => void;
 }
@@ -19,6 +21,7 @@ export function SnippetFeed({
   myUserId,
   roomId,
   encryptionKey,
+  participantMap,
   onAddSnippet,
   onDeleteSnippet,
 }: Props) {
@@ -157,6 +160,7 @@ export function SnippetFeed({
               myUserId={myUserId}
               roomId={roomId}
               encryptionKey={encryptionKey}
+              disambiguatedName={participantMap?.get(s.sender_id)?.displayName}
               onDelete={onDeleteSnippet}
             />
           ))

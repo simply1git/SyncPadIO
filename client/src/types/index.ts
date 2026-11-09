@@ -46,11 +46,25 @@ export interface P2PTransfer {
   status: 'queued' | 'connecting' | 'transferring' | 'completed' | 'failed' | 'cancelled';
   direction: 'send' | 'receive';
   senderName?: string;
+  senderId?: string;
   timestamp?: number;
   etaSeconds?: number;
   blob?: Blob;
   downloadUrl?: string;
   error?: string;
+}
+
+export interface RoomParticipant {
+  userId: string;
+  userName: string;
+  displayName: string;
+  joined: number;
+  isMe: boolean;
+  color: {
+    bg: string;
+    text: string;
+    border: string;
+  };
 }
 
 export interface P2PTunnelState {

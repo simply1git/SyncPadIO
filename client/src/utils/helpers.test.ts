@@ -8,7 +8,11 @@ import {
   validateFile,
   truncate,
   detectCodeLanguage,
-  MAX_FILE_SIZE
+  MAX_FILE_SIZE,
+  getUserAvatarColor,
+  getUniqueZipFileName,
+  disambiguateParticipants,
+  formatSenderDisplayName
 } from './helpers';
 
 describe('SyncPadIO Helper Utilities', () => {
@@ -99,6 +103,56 @@ describe('SyncPadIO Helper Utilities', () => {
     const plainWithKey = parseQrCodeData('ZETA42#k=special_key');
     expect(plainWithKey.roomCode).toBe('ZETA42');
     expect(plainWithKey.encryptionKey).toBe('special_key');
+  });
+
+  it('generates consistent deterministic avatar colors for user IDs', () => {
+    const color1 = getUserAvatarColor('user_123');
+    const color2 = getUserAvatarColor('user_123');
+    const color3 = getUserAvatarColor('user_456');
+
+    expect(color1.bg).toBe(color2.bg);
+    expect(color1.text).toBe('#ffffff');
+    expect(color1.bg).not.toBe(color3.bg);
+  });
+
+  it('deduplicates filenames in zip archives to prevent overwrites', () => {
+    const existing = new Set<string>();
+    expect(getUniqueZipFileName('photo.png', existing)).toBe('photo.png');
+    expect(getUniqueZipFileName('photo.png', existing)).toBe('photo (1).png');
+    expect(getUniqueZipFileName('photo.png', existing)).toBe('photo (2).png');
+    expect(getUniqueZipFileName('document.tar.gz', existing)).toBe('document.tar.gz');
+    expect(getUniqueZipFileName('document.tar.gz', existing)).toBe('document.tar (1).gz');
+  });
+
+  it('disambiguates duplicate usernames in room presence', () => {
+    const raw = [
+      { userId: 'u_user_a', userName: 'sam', joined: 100 },
+      { userId: 'u_user_b', userName: 'sam', joined: 200 },
+      { userId: 'u_user_c', userName: 'Jordan', joined: 300 },
+    ];
+
+    // Case 1: As user_a ('sam')
+    const participantsA = disambiguateParticipants(raw, 'u_user_a');
+    expect(participantsA).toHaveLength(3);
+    // User A is 'You'
+    expect(participantsA[0].userId).toBe('u_user_a');
+    expect(participantsA[0].displayName).toBe('sam (You)');
+    expect(participantsA[0].isMe).toBe(true);
+
+    // User B gets disambiguated with a tag
+    const userB = participantsA.find(p => p.userId === 'u_user_b')!;
+    expect(userB.displayName).toBe('sam #ER_B');
+
+    // User C is unique so no tag needed
+    const userC = participantsA.find(p => p.userId === 'u_user_c')!;
+    expect(userC.displayName).toBe('Jordan');
+  });
+
+  it('formats sender display name with proper self-attribution', () => {
+    expect(formatSenderDisplayName('my_id', 'Alice', 'my_id')).toBe('Alice (You)');
+    expect(formatSenderDisplayName('my_id', undefined, 'my_id')).toBe('You');
+    expect(formatSenderDisplayName('peer_id', 'Bob', 'my_id')).toBe('Bob');
+    expect(formatSenderDisplayName('peer_id', undefined, 'my_id')).toBe('Anonymous');
   });
 });
 

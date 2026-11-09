@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Toaster, toast } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
@@ -6,7 +6,14 @@ import { useRoomLifecycle, TWENTY_FOUR_HOURS_MS, DEFAULT_EPHEMERAL_TIMEOUT_MS } 
 import { uploadFileToRoom, deleteFileFromRoom } from './utils/roomUtils';
 import { encryptText, getRoomKeyFromHash, setRoomKeyToHash } from './utils/crypto';
 import { startKeepAliveService } from './utils/keepAlive';
-import { extractRoomCode, generateRoomId, generateUserId } from './utils/helpers';
+import {
+  extractRoomCode,
+  generateRoomId,
+  generateUserId,
+  disambiguateParticipants,
+  DisambiguatedParticipant,
+  RawParticipant,
+} from './utils/helpers';
 import {
   saveRoomOffline,
   saveSnippetsOffline,
@@ -79,6 +86,16 @@ export default function App() {
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [showNameModal, setShowNameModal] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [participants, setParticipants] = useState<DisambiguatedParticipant[]>([]);
+
+  const participantMap = useMemo(() => {
+    const map = new Map<string, DisambiguatedParticipant>();
+    for (const p of participants) {
+      map.set(p.userId, p);
+    }
+    return map;
+  }, [participants]);
+
   const { isInstallable, isInstalled, isIOS, hasNativePrompt, triggerInstall } = usePWAInstall();
 
   // ── Refs ────────────────────────────────────────────────────────────────
@@ -90,10 +107,12 @@ export default function App() {
   const [myUserId] = useState(getPersistentUserId);
   const isJoinedRef = useRef(isJoined);
   const roomIdRef = useRef(roomId);
+  const userNameRef = useRef(userName);
   useEffect(() => {
     isJoinedRef.current = isJoined;
     roomIdRef.current = roomId;
-  }, [isJoined, roomId]);
+    userNameRef.current = userName;
+  }, [isJoined, roomId, userName]);
 
   // ── Initialize P2P Service ──────────────────────────────────────────────
   useEffect(() => {
@@ -230,6 +249,17 @@ export default function App() {
     if (trimmed) {
       try { localStorage.setItem(STORAGE_KEY_USER_NAME, trimmed); } catch { /* ignore */ }
       setUserName(trimmed);
+      if (p2pServiceRef.current) {
+        p2pServiceRef.current.setSenderName(trimmed);
+      }
+      if (channelRef.current && channelRef.current.state === 'joined') {
+        channelRef.current.track({
+          user: myUserId,
+          userName: trimmed,
+          joined: Date.now(),
+        }).catch(() => {});
+      }
+      toast.success(`Display name set to "${trimmed}"`);
     }
     setShowNameModal(false);
   };
@@ -283,10 +313,30 @@ export default function App() {
         });
       }
     )
-    .on('presence', { event: 'sync' }, () => {
+    const handlePresenceUpdate = () => {
       const state = ch.presenceState();
-      const count = Object.values(state).reduce((a, v) => a + v.length, 0);
-      setUserCount(Math.max(1, count));
+      const rawList: RawParticipant[] = [];
+      for (const key of Object.keys(state)) {
+        const list = state[key] as Array<{ user?: string; userName?: string; joined?: number }>;
+        for (const item of list) {
+          if (item.user) {
+            rawList.push({
+              userId: item.user,
+              userName: item.userName || 'Anonymous',
+              joined: item.joined || Date.now(),
+            });
+          }
+        }
+      }
+      const disambiguated = disambiguateParticipants(rawList, myUserId);
+      setParticipants(disambiguated);
+      const count = Math.max(1, disambiguated.length);
+      setUserCount(count);
+      return { count, state };
+    };
+
+    ch.on('presence', { event: 'sync' }, () => {
+      const { count, state } = handlePresenceUpdate();
       if (desertionTimerRef.current) {
         clearTimeout(desertionTimerRef.current);
         desertionTimerRef.current = null;
@@ -311,9 +361,7 @@ export default function App() {
       }
     })
     .on('presence', { event: 'leave' }, () => {
-      const state = ch.presenceState();
-      const count = Object.values(state).reduce((a, v) => a + v.length, 0);
-      setUserCount(Math.max(1, count));
+      const { count } = handlePresenceUpdate();
       if (count === 0) {
         if (is24h) {
           updateLastActivity(true);
@@ -346,7 +394,11 @@ export default function App() {
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
         setConnStatus('connected');
-        await ch.track({ user: myUserId, joined: Date.now() });
+        await ch.track({
+          user: myUserId,
+          userName: userNameRef.current.trim() || 'Anonymous',
+          joined: Date.now(),
+        });
 
         // Broadcast peer-ready to existing peers
         try {
@@ -670,6 +722,7 @@ export default function App() {
     setSnippets([]);
     setFiles([]);
     setP2pTransfers([]);
+    setParticipants([]);
     setConnStatus('connecting');
     window.history.replaceState({}, '', window.location.pathname);
     toast('Left session', { icon: '👋' });
@@ -897,6 +950,7 @@ export default function App() {
             roomId={roomId}
             userName={userName}
             userCount={userCount}
+            participants={participants}
             connStatus={connStatus}
             darkMode={darkMode}
             hasEncryptionKey={Boolean(encryptionKey)}
@@ -958,6 +1012,7 @@ export default function App() {
                 myUserId={myUserId}
                 roomId={roomId}
                 encryptionKey={encryptionKey}
+                participantMap={participantMap}
                 onAddSnippet={handleAddSnippet}
                 onDeleteSnippet={handleDeleteSnippet}
               />
@@ -973,6 +1028,7 @@ export default function App() {
                 userCount={userCount}
                 roomId={roomId}
                 encryptionKey={encryptionKey}
+                currentUserName={userName}
                 onUploadFiles={handleUploadFiles}
                 onSendP2PFile={handleSendP2PFile}
                 onSendP2PFiles={handleSendP2PFiles}

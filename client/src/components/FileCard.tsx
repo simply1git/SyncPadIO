@@ -11,6 +11,7 @@ interface Props {
   selected?: boolean;
   roomId?: string;
   encryptionKey?: string;
+  currentUserName?: string;
   onSelect?: (id: string) => void;
   onDelete: (id: string, url: string) => void;
   onPreview: (file: FileData) => void;
@@ -21,6 +22,7 @@ export function FileCard({
   selected = false,
   roomId,
   encryptionKey,
+  currentUserName,
   onSelect,
   onDelete,
   onPreview
@@ -141,7 +143,11 @@ export function FileCard({
         <div className="flex flex-col gap-0.5 mb-2.5 text-xs text-zinc-400">
           {file.uploader_name && (
             <span className="truncate text-[11px] text-zinc-400">
-              Uploaded by {file.uploader_name}
+              {currentUserName && file.uploader_name.trim().toLowerCase() === currentUserName.trim().toLowerCase() ? (
+                <span className="font-medium text-accent">Uploaded by you</span>
+              ) : (
+                `Uploaded by ${file.uploader_name}`
+              )}
             </span>
           )}
           <span className="text-[11px] font-mono text-zinc-500 whitespace-nowrap">

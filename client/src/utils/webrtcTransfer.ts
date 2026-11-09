@@ -30,6 +30,7 @@ interface IncomingMeta {
   size: number;
   mimeType: string;
   senderName?: string;
+  senderId?: string;
   timestamp?: number;
 }
 
@@ -237,6 +238,7 @@ export class WebRTCTransferService {
       status: 'queued',
       direction: 'send',
       senderName: this.senderName,
+      senderId: this.myUserId,
       timestamp: Date.now(),
     };
 
@@ -586,9 +588,9 @@ export class WebRTCTransferService {
 
       // File Header: Start OPFS Disk Stream
       if (msg.type === 'file-header') {
-        const { id, name, size, mimeType, senderName, timestamp } = msg;
+        const { id, name, size, mimeType, senderName, senderId, timestamp } = msg;
         this.activeIncomingTransferId = id;
-        this.activeIncomingMeta = { id, name, size, mimeType, senderName, timestamp };
+        this.activeIncomingMeta = { id, name, size, mimeType, senderName, senderId, timestamp };
         this.activeIncomingBytes = 0;
         this.activeIncomingLastTime = Date.now();
         this.activeIncomingBytesSinceLast = 0;
@@ -610,6 +612,7 @@ export class WebRTCTransferService {
           status: 'transferring',
           direction: 'receive',
           senderName: senderName || 'Peer',
+          senderId: senderId,
           timestamp: timestamp || Date.now(),
         };
 
@@ -666,7 +669,7 @@ export class WebRTCTransferService {
   private async finalizeIncomingTransfer(): Promise<void> {
     if (!this.activeIncomingWriter || !this.activeIncomingMeta) return;
 
-    const { id, size, mimeType, senderName, timestamp } = this.activeIncomingMeta;
+    const { id, size, mimeType, senderName, senderId, timestamp } = this.activeIncomingMeta;
 
     try {
       const file = await this.activeIncomingWriter.finish();
@@ -683,6 +686,7 @@ export class WebRTCTransferService {
         downloadUrl,
         timestamp: timestamp || Date.now(),
         senderName: senderName || 'Peer',
+        senderId: senderId,
       });
 
       // Feedback: synthesized audio chime & mobile haptic pulse
@@ -723,6 +727,7 @@ export class WebRTCTransferService {
           size: file.size,
           mimeType: file.type || 'application/octet-stream',
           senderName: this.senderName,
+          senderId: this.myUserId,
           timestamp: Date.now(),
         })
       );
