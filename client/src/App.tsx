@@ -234,7 +234,160 @@ export default function App() {
     setShowNameModal(false);
   };
 
-  // ── Join Room Realtime with Local-First IndexedDB Hydration ─────────────
+  // ── High-Speed Realtime Channel Setup ──────────────────────────────────
+  const setupRealtimeChannel = useCallback((cleanId: string, is24h: boolean) => {
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    const ch = supabase.channel(`room:${cleanId}`);
+
+    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
+      (p) => {
+        const newSnip = p.new as Snippet;
+        setSnippets(prev => {
+          if (prev.find(s => s.id === newSnip.id)) return prev;
+          const updated = [...prev, newSnip];
+          saveSnippetsOffline(cleanId, updated).catch(() => {});
+          return updated;
+        });
+      }
+    )
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
+      (p) => {
+        setSnippets(prev => {
+          const updated = prev.filter(s => s.id !== p.old.id);
+          saveSnippetsOffline(cleanId, updated).catch(() => {});
+          return updated;
+        });
+      }
+    )
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
+      (p) => {
+        const newFile = p.new as FileData;
+        setFiles(prev => {
+          if (prev.find(f => f.id === newFile.id)) return prev;
+          const updated = [...prev, newFile];
+          saveFilesOffline(cleanId, updated).catch(() => {});
+          return updated;
+        });
+      }
+    )
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
+      (p) => {
+        setFiles(prev => {
+          const updated = prev.filter(f => f.id !== p.old.id);
+          saveFilesOffline(cleanId, updated).catch(() => {});
+          return updated;
+        });
+      }
+    )
+    .on('presence', { event: 'sync' }, () => {
+      const state = ch.presenceState();
+      const count = Object.values(state).reduce((a, v) => a + v.length, 0);
+      setUserCount(Math.max(1, count));
+      if (desertionTimerRef.current) {
+        clearTimeout(desertionTimerRef.current);
+        desertionTimerRef.current = null;
+      }
+
+      // Automatic Pre-Warming: find remote peer userId and pre-warm P2P connection!
+      if (count > 1 && p2pServiceRef.current && ch.state === 'joined') {
+        let peerUser: string | undefined;
+        for (const key of Object.keys(state)) {
+          const list = state[key] as Array<{ user?: string }>;
+          for (const item of list) {
+            if (item.user && item.user !== myUserId) {
+              peerUser = item.user;
+              break;
+            }
+          }
+          if (peerUser) break;
+        }
+        if (peerUser) {
+          p2pServiceRef.current.prewarm(peerUser);
+        }
+      }
+    })
+    .on('presence', { event: 'leave' }, () => {
+      const state = ch.presenceState();
+      const count = Object.values(state).reduce((a, v) => a + v.length, 0);
+      setUserCount(Math.max(1, count));
+      if (count === 0) {
+        if (is24h) {
+          updateLastActivity(true);
+        } else {
+          if (desertionTimerRef.current) clearTimeout(desertionTimerRef.current);
+          desertionTimerRef.current = setTimeout(() => {
+            deleteRoom();
+          }, 5 * 60 * 1000);
+        }
+      }
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${cleanId}` },
+      (p) => {
+        const updated = p.new as { status?: string };
+        if (updated?.status) {
+          setKeepAlive24h(updated.status === 'keep-24h');
+        }
+      }
+    )
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'rooms', filter: `id=eq.${cleanId}` },
+      () => {
+        onRoomDeleted();
+      }
+    )
+    .on('broadcast', { event: 'webrtc-signal' }, (res) => {
+      if (p2pServiceRef.current && res.payload) {
+        p2pServiceRef.current.handleSignal(res.payload);
+      }
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        setConnStatus('connected');
+        await ch.track({ user: myUserId, joined: Date.now() });
+
+        // Broadcast peer-ready to existing peers
+        try {
+          await ch.send({
+            type: 'broadcast',
+            event: 'webrtc-signal',
+            payload: {
+              type: 'peer-ready',
+              fromUserId: myUserId,
+            },
+          });
+        } catch {
+          // Ignored
+        }
+      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        setConnStatus('offline');
+      }
+    });
+
+    channelRef.current = ch;
+    if (p2pServiceRef.current) {
+      p2pServiceRef.current.setSignalSender(async (signal) => {
+        try {
+          await ch.send({
+            type: 'broadcast',
+            event: 'webrtc-signal',
+            payload: signal,
+          });
+        } catch (e) {
+          console.warn('[WebRTC Signal Send Notice]', e);
+        }
+      });
+    }
+    setConnStatus('connecting');
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [myUserId, deleteRoom, updateLastActivity, onRoomDeleted]);
+
+  // ── Join Room Realtime with High-Speed Parallel Hydration ───────────────
   const joinRoomRealtime = useCallback(async (
     id: string,
     customKey?: string,
@@ -254,309 +407,185 @@ export default function App() {
 
     setIsJoining(true);
 
-    // 1. Resolve encryption key (from param or URL hash if explicitly provided)
+    // 1. Resolve encryption key & URL path
     const hashKey = getRoomKeyFromHash();
     const resolvedKey = customKey || hashKey || undefined;
+    const urlPath = `?room=${cleanId}${resolvedKey ? `#k=${resolvedKey}` : ''}`;
 
-    // 2. If offline, stay in local workspace without throwing network errors
-    if (!navigator.onLine) {
-      if (!isCreate) {
-        const [cachedSnips, cachedFls] = await Promise.all([
-          getCachedSnippets(cleanId),
-          getCachedFiles(cleanId)
-        ]);
-        if (!cachedSnips.length && !cachedFls.length) {
-          toast.error('You are offline and room was not cached on this device.');
-          setIsJoining(false);
-          return;
-        }
-        setSnippets(cachedSnips);
-        setFiles(cachedFls);
-      }
+    // 2. Identify if current user is the room creator
+    try {
+      const creatorId = localStorage.getItem('syncpad_creator_' + cleanId);
+      setIsCreator(creatorId === myUserId);
+    } catch {
+      setIsCreator(false);
+    }
+
+    // Check if room is locked via Biometric Passkey on this device
+    if (hasRoomPasskey(cleanId) && isRoomLocked(cleanId)) {
+      setIsLocked(true);
+    }
+
+    // 3. FAST PATH: Instant 0ms Room Creation (Optimistic UI Switch)
+    if (isCreate) {
       setRoomId(cleanId);
       setEncryptionKey(resolvedKey);
       if (resolvedKey) setRoomKeyToHash(resolvedKey);
-      await saveRoomOffline(cleanId, resolvedKey);
+      setSnippets([]);
+      setFiles([]);
+      setKeepAlive24h(Boolean(initialKeep24h));
+      window.history.replaceState({}, '', urlPath);
+      setIsJoined(true);
+      setIsJoining(false);
+
+      // Background persistence & realtime setup (completely non-blocking)
+      const now = Date.now();
+      saveRoomOffline(cleanId, resolvedKey).catch(() => {});
+
+      const initialStatus = initialKeep24h ? 'keep-24h' : 'active';
+      supabase.from('rooms').upsert({
+        id: cleanId,
+        created_at: now,
+        last_activity: now,
+        status: initialStatus
+      }, { onConflict: 'id' }).then(({ error }) => {
+        if (error) {
+          console.warn('[Room Create Notice]', error);
+        }
+      });
+
+      setupRealtimeChannel(cleanId, Boolean(initialKeep24h));
+      return;
+    }
+
+    // 4. JOIN PATH: Parallelized Dual-Tier Hydration (Cache + Cloud)
+    const cachedPromise = Promise.all([
+      getCachedSnippets(cleanId),
+      getCachedFiles(cleanId)
+    ]);
+
+    // Offline Fast Exit
+    if (!navigator.onLine) {
+      const [cachedSnips, cachedFls] = await cachedPromise;
+      if (!cachedSnips.length && !cachedFls.length) {
+        toast.error('You are offline and room was not cached on this device.');
+        setIsJoining(false);
+        return;
+      }
+      setSnippets(cachedSnips);
+      setFiles(cachedFls);
+      setRoomId(cleanId);
+      setEncryptionKey(resolvedKey);
+      if (resolvedKey) setRoomKeyToHash(resolvedKey);
+      saveRoomOffline(cleanId, resolvedKey).catch(() => {});
       setConnStatus('offline');
       setIsJoined(true);
       setIsJoining(false);
       return;
     }
 
-    // 3. Online flow: verify room exists or create new session in Supabase
-    try {
-      const now = Date.now();
+    // ONLINE: Launch parallel network queries (One single concurrent round-trip!)
+    const roomCheckPromise = supabase
+      .from('rooms')
+      .select('id, last_activity, status')
+      .eq('id', cleanId)
+      .maybeSingle();
 
-      const { data: existingRoom, error: fetchErr } = await supabase
-        .from('rooms')
-        .select('id, last_activity, status')
-        .eq('id', cleanId)
-        .maybeSingle();
+    const snippetPromise = supabase
+      .from('snippets')
+      .select('*')
+      .eq('room_id', cleanId)
+      .order('timestamp');
+
+    const filePromise = supabase
+      .from('files')
+      .select('*')
+      .eq('room_id', cleanId)
+      .order('timestamp');
+
+    // Optimistic cache preview: If previously visited, render instantly in ~5ms
+    cachedPromise.then(([cachedSnips, cachedFls]) => {
+      if (cachedSnips.length > 0 || cachedFls.length > 0) {
+        setSnippets(cachedSnips);
+        setFiles(cachedFls);
+        setRoomId(cleanId);
+        setEncryptionKey(resolvedKey);
+        if (resolvedKey) setRoomKeyToHash(resolvedKey);
+        setIsJoined(true);
+      }
+    });
+
+    try {
+      const { data: existingRoom, error: fetchErr } = await roomCheckPromise;
 
       if (fetchErr && import.meta.env.DEV) {
         console.warn('Room check notice:', fetchErr);
       }
 
-      const is24h = existingRoom?.status === 'keep-24h' || (!existingRoom && initialKeep24h === true);
+      if (!existingRoom) {
+        toast.error(`Room "${cleanId}" not found. Check code or create a session.`);
+        setIsJoined(false);
+        setRoomId('');
+        setSnippets([]);
+        setFiles([]);
+        if (window.location.search.includes('room=')) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+        setIsJoining(false);
+        return;
+      }
+
+      const now = Date.now();
+      const is24h = existingRoom.status === 'keep-24h';
       const ttlCutoff = is24h ? TWENTY_FOUR_HOURS_MS : DEFAULT_EPHEMERAL_TIMEOUT_MS;
-      const isExpired = Boolean(existingRoom?.last_activity && (now - existingRoom.last_activity > ttlCutoff));
+      const isExpired = Boolean(existingRoom.last_activity && (now - existingRoom.last_activity > ttlCutoff));
 
-      if (isCreate) {
-        // Creator wants to create a session
-        if (existingRoom && !isExpired) {
-          toast.error(`Room "${cleanId}" is already active. Please enter a different code or join it.`);
-          setIsJoining(false);
-          return;
+      if (isExpired) {
+        deleteRoom();
+        toast.error(`Session "${cleanId}" has expired.`);
+        setIsJoined(false);
+        setRoomId('');
+        setSnippets([]);
+        setFiles([]);
+        if (window.location.search.includes('room=')) {
+          window.history.replaceState({}, '', window.location.pathname);
         }
-
-        if (isExpired) {
-          await deleteRoom();
-        }
-
-        const initialStatus = initialKeep24h ? 'keep-24h' : 'active';
-        const { error: upsertError } = await supabase.from('rooms').upsert({
-          id: cleanId,
-          created_at: now,
-          last_activity: now,
-          status: initialStatus
-        }, { onConflict: 'id' });
-
-        if (upsertError) {
-          console.error('Room creation error:', upsertError);
-          toast.error(`Could not create room: ${upsertError.message || 'Database error'}`);
-          setIsJoining(false);
-          return;
-        }
-        setKeepAlive24h(Boolean(initialKeep24h));
-      } else {
-        // Joining existing room (strictly check existence)
-        if (!existingRoom) {
-          toast.error(`Room "${cleanId}" not found. Check code or create a session.`);
-          setIsJoining(false);
-          if (window.location.search.includes('room=')) {
-            window.history.replaceState({}, '', window.location.pathname);
-          }
-          return;
-        }
-
-        if (isExpired) {
-          await deleteRoom();
-          toast.error(`Session "${cleanId}" has expired.`);
-          setIsJoining(false);
-          if (window.location.search.includes('room=')) {
-            window.history.replaceState({}, '', window.location.pathname);
-          }
-          return;
-        }
-
-        setKeepAlive24h(is24h);
-        await supabase.from('rooms').update({ last_activity: now }).eq('id', cleanId);
+        setIsJoining(false);
+        return;
       }
 
-      // 4. Session verified or created - Hydrate session state!
-      try {
-        const creatorId = localStorage.getItem('syncpad_creator_' + cleanId);
-        setIsCreator(creatorId === myUserId);
-      } catch {
-        setIsCreator(false);
-      }
-
+      // Room validated! Switch to room view immediately!
+      setKeepAlive24h(is24h);
       setRoomId(cleanId);
       setEncryptionKey(resolvedKey);
-      if (resolvedKey) {
-        setRoomKeyToHash(resolvedKey);
-      }
-
-      await saveRoomOffline(cleanId, resolvedKey);
-
-      if (hasRoomPasskey(cleanId) && isRoomLocked(cleanId)) {
-        setIsLocked(true);
-      }
-
-      const [cachedSnips, cachedFls] = await Promise.all([
-        getCachedSnippets(cleanId),
-        getCachedFiles(cleanId)
-      ]);
-      if (cachedSnips.length) setSnippets(cachedSnips);
-      if (cachedFls.length) setFiles(cachedFls);
-
-      const urlPath = `?room=${cleanId}${resolvedKey ? `#k=${resolvedKey}` : ''}`;
+      if (resolvedKey) setRoomKeyToHash(resolvedKey);
       window.history.replaceState({}, '', urlPath);
+      setIsJoined(true);
+      setIsJoining(false);
 
-      if (channelRef.current) await supabase.removeChannel(channelRef.current);
+      // Non-blocking background heartbeat & local caching
+      supabase.from('rooms').update({ last_activity: now }).eq('id', cleanId).then(() => {}, () => {});
+      saveRoomOffline(cleanId, resolvedKey).catch(() => {});
 
-      // Fetch latest records from Supabase and update local IndexedDB cache
-      const [snippetRes, fileRes] = await Promise.all([
-        supabase.from('snippets').select('*').eq('room_id', cleanId).order('timestamp'),
-        supabase.from('files').select('*').eq('room_id', cleanId).order('timestamp'),
-      ]);
+      // Await parallel data payloads (already fetched concurrently!)
+      const [snippetRes, fileRes] = await Promise.all([snippetPromise, filePromise]);
 
       if (snippetRes.data) {
         const freshSnippets = snippetRes.data as Snippet[];
         setSnippets(freshSnippets);
-        await saveSnippetsOffline(cleanId, freshSnippets);
+        saveSnippetsOffline(cleanId, freshSnippets).catch(() => {});
       }
       if (fileRes.data) {
         const freshFiles = fileRes.data as FileData[];
         setFiles(freshFiles);
-        await saveFilesOffline(cleanId, freshFiles);
+        saveFilesOffline(cleanId, freshFiles).catch(() => {});
       }
 
-      // Check and flush any pending offline drafts
+      // Flush offline drafts in background
       flushPendingOfflineSnippets(cleanId);
 
-      // Subscribe to Realtime channel
-      const ch = supabase.channel(`room:${cleanId}`);
-
-      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
-        (p) => {
-          const newSnip = p.new as Snippet;
-          setSnippets(prev => {
-            if (prev.find(s => s.id === newSnip.id)) return prev;
-            const updated = [...prev, newSnip];
-            saveSnippetsOffline(cleanId, updated);
-            return updated;
-          });
-        }
-      )
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'snippets', filter: `room_id=eq.${cleanId}` },
-        (p) => {
-          setSnippets(prev => {
-            const updated = prev.filter(s => s.id !== p.old.id);
-            saveSnippetsOffline(cleanId, updated);
-            return updated;
-          });
-        }
-      )
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
-        (p) => {
-          const newFile = p.new as FileData;
-          setFiles(prev => {
-            if (prev.find(f => f.id === newFile.id)) return prev;
-            const updated = [...prev, newFile];
-            saveFilesOffline(cleanId, updated);
-            return updated;
-          });
-        }
-      )
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'files', filter: `room_id=eq.${cleanId}` },
-        (p) => {
-          setFiles(prev => {
-            const updated = prev.filter(f => f.id !== p.old.id);
-            saveFilesOffline(cleanId, updated);
-            return updated;
-          });
-        }
-      )
-      .on('presence', { event: 'sync' }, () => {
-        const state = ch.presenceState();
-        const count = Object.values(state).reduce((a, v) => a + v.length, 0);
-        setUserCount(Math.max(1, count));
-        // If users are active in room, cancel desertion cleanup
-        if (desertionTimerRef.current) {
-          clearTimeout(desertionTimerRef.current);
-          desertionTimerRef.current = null;
-        }
-
-        // Automatic Pre-Warming: find remote peer userId and pre-warm P2P connection!
-        if (count > 1 && p2pServiceRef.current && ch.state === 'joined') {
-          let peerUser: string | undefined;
-          for (const key of Object.keys(state)) {
-            const list = state[key] as Array<{ user?: string }>;
-            for (const item of list) {
-              if (item.user && item.user !== myUserId) {
-                peerUser = item.user;
-                break;
-              }
-            }
-            if (peerUser) break;
-          }
-          if (peerUser) {
-            p2pServiceRef.current.prewarm(peerUser);
-          }
-        }
-      })
-      .on('presence', { event: 'leave' }, () => {
-        const state = ch.presenceState();
-        const count = Object.values(state).reduce((a, v) => a + v.length, 0);
-        setUserCount(Math.max(1, count));
-        if (count === 0) {
-          if (is24h) {
-            // Creator set 24h retention: update last_activity and keep alive
-            updateLastActivity(true);
-          } else {
-            // Default Ephemeral Room: all users left or closed.
-            // Start 5-minute desertion grace countdown before safely purging
-            if (desertionTimerRef.current) clearTimeout(desertionTimerRef.current);
-            desertionTimerRef.current = setTimeout(() => {
-              deleteRoom();
-            }, 5 * 60 * 1000);
-          }
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${cleanId}` },
-        (p) => {
-          const updated = p.new as { status?: string };
-          if (updated?.status) {
-            setKeepAlive24h(updated.status === 'keep-24h');
-          }
-        }
-      )
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'rooms', filter: `id=eq.${cleanId}` },
-        () => {
-          onRoomDeleted();
-        }
-      )
-      .on('broadcast', { event: 'webrtc-signal' }, (res) => {
-        if (p2pServiceRef.current && res.payload) {
-          p2pServiceRef.current.handleSignal(res.payload);
-        }
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          setConnStatus('connected');
-          await ch.track({ user: myUserId, joined: Date.now() });
-
-          // Broadcast peer-ready to existing peers
-          try {
-            await ch.send({
-              type: 'broadcast',
-              event: 'webrtc-signal',
-              payload: {
-                type: 'peer-ready',
-                fromUserId: myUserId,
-              },
-            });
-          } catch {
-            // Ignored
-          }
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setConnStatus('offline');
-        }
-      });
-
-      channelRef.current = ch;
-      if (p2pServiceRef.current) {
-        p2pServiceRef.current.setSignalSender(async (signal) => {
-          try {
-            await ch.send({
-              type: 'broadcast',
-              event: 'webrtc-signal',
-              payload: signal,
-            });
-          } catch (e) {
-            console.warn('[WebRTC Signal Send Notice]', e);
-          }
-        });
-      }
-      setConnStatus('connecting');
-      setIsJoined(true);
-
-      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
+      // Connect Realtime Channel
+      setupRealtimeChannel(cleanId, is24h);
     } catch (err) {
-      // Graceful offline fallback on network failure
       if (!navigator.onLine) {
         setConnStatus('offline');
         setIsJoined(true);
@@ -566,7 +595,7 @@ export default function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [myUserId, deleteRoom, flushPendingOfflineSnippets, updateLastActivity, onRoomDeleted]);
+  }, [myUserId, deleteRoom, flushPendingOfflineSnippets, setupRealtimeChannel]);
 
   // ── URL Parameter Auto-Join ─────────────────────────────────────────────
   const hasAutoJoinedRef = useRef(false);
